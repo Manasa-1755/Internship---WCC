@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Simple JS Example</title>
+</head>
+<body>
+  <h2>JavaScript Examples</h2>
+
+  <p id="variable"></p>
+  <p id="function"></p>
+  <p id="arrow"></p>
+  <p id="object"></p>
+  <p id="datatype"></p>
+  <p id="promise"></p>
+
+<script>
+  // Variable example
+  let fruit = "Apple";
+  document.getElementById("variable").innerHTML = "Favorite fruit is: " + fruit;
+
+  // Function example
+  function greet(name) {
+    return "Hello, " + name + "!";
+  }
+  document.getElementById("function").innerHTML = greet("Manasa");
+
+  // Arrow function example
+  const multiply = (a, b) => a * b;
+  document.getElementById("arrow").innerHTML = "4 × 3 = " + multiply(4, 3);
+
+  // Object example
+  const student = {
+    name: "Sara",
+    age: 20,
+    course: "CS"
+  };
+  document.getElementById("object").innerHTML = student.name + " is studying " + student.course;
+
+  // Data type example
+  let number = 10;
+  let text = "Ten";
+  document.getElementById("datatype").innerHTML = "Type of number: " + typeof number + ", Type of text: " + typeof text;
+
+  // Promise example
+  function showResult(msg) {
+    document.getElementById("promise").innerHTML = msg;
+  }
+
+  let checkNumber = new Promise(function(resolve, reject) {
+    let value = 5;
+    if (value > 0) {
+      resolve(value + " is a positive number");
+    } else {
+      reject(value + " is  not positive");
+    }
+  });
+
+  checkNumber.then(
+    function(result) { showResult(result); },
+    function(error) { showResult(error); }
+  );
+</script>
+</body>
+</html>
