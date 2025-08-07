@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Simple JS Example</title>
+  <title>Simple JS with MutationObserver</title>
 </head>
 <body>
   <h2>JavaScript Examples</h2>
@@ -12,6 +12,7 @@
   <p id="object"></p>
   <p id="datatype"></p>
   <p id="promise"></p>
+  <p id="mutationResult"></p>
 
 <script>
   // Variable example
@@ -49,9 +50,9 @@
   let checkNumber = new Promise(function(resolve, reject) {
     let value = 5;
     if (value > 0) {
-      resolve(value + " is a positive number");
+      resolve("Positive number");
     } else {
-      reject(value + " is  not positive");
+      reject("Not positive");
     }
   });
 
@@ -59,6 +60,20 @@
     function(result) { showResult(result); },
     function(error) { showResult(error); }
   );
+
+  // MutationObserver to watch the #promise element
+  const targetNode = document.getElementById("promise");
+
+  const observer = new MutationObserver(function(mutationsList, observer) {
+    for (let mutation of mutationsList) {
+      if (mutation.type === "childList") {
+        document.getElementById("mutationResult").innerHTML = "Promise result changed!";
+        console.log("Mutation detected:", mutation);
+      }
+    }
+  });
+
+  observer.observe(targetNode, { childList: true });
 </script>
 </body>
 </html>
