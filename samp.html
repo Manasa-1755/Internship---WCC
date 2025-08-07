@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Simple JS with MutationObserver</title>
+  <title>Sample Code</title>
 </head>
 <body>
-  <h2>JavaScript Examples</h2>
+  <h2>Welcome !!!</h2>
 
   <p id="variable"></p>
   <p id="function"></p>
@@ -40,7 +40,7 @@
   // Data type example
   let number = 10;
   let text = "Ten";
-  document.getElementById("datatype").innerHTML = "Type of number: " + typeof number + ", Type of text: " + typeof text;
+  document.getElementById("datatype").innerHTML = "Type of number " + number + " : "+ typeof number + ", Type of text" + text + " : "+ typeof text;
 
   // Promise example
   function showResult(msg) {
@@ -48,11 +48,11 @@
   }
 
   let checkNumber = new Promise(function(resolve, reject) {
-    let value = 5;
+    let value = 6;
     if (value > 0) {
-      resolve("Positive number");
+      resolve(value + " is a positive number");
     } else {
-      reject("Not positive");
+      reject(value + " is not positive");
     }
   });
 
@@ -77,3 +77,4 @@
 </script>
 </body>
 </html>
+
