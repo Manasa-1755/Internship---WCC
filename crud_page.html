@@ -81,17 +81,6 @@
     }
 
     
-    .error-msg {
-      color: red;
-      font-size: 0.85rem;
-      grid-column: span 1;
-      display: none;
-      margin-top: -16px;
-      margin-bottom: 10px;
-      justify-self: start;
-    }
-
-    
     table {
       width: 100%;
       border-collapse: collapse;
@@ -167,6 +156,20 @@
         padding: 12px 8px;
         font-size: 0.9rem;
       }
+      table {
+        display: block;
+        width: 100%;
+        overflow-x: auto;
+        white-space: nowrap;
+        border-collapse: collapse;
+      }
+
+      thead {
+        top: 0;
+        background: #2980b9;
+        z-index: 2;
+      }
+    
     }
   </style>
 </head>
@@ -180,10 +183,8 @@
       <input type="text" id="name" placeholder="Name" required />
 
       <input type="email" id="email" placeholder="Email" required />
-      <span id="emailError" class="error-msg">Email must end with @gmail.com</span>
 
       <input type="text" id="age" placeholder="Age" required min="1" />
-      <span id="ageError" class="error-msg">Age must be a positive integer</span>
 
       <select id="gender" required>
         <option value="">Gender</option>
@@ -193,7 +194,6 @@
       </select>
 
       <input type="tel" id="phone" placeholder="Phone" required pattern="[0-9\s+-]{7,15}" />
-      <span id="phoneError" class="error-msg">Phone number must be exactly 10 digits</span>
 
       <button type="submit">Save User</button>
     </form>
@@ -201,7 +201,7 @@
     <table>
       <thead>
         <tr>
-          <th>Name</th><th>Email</th><th>Age</th><th>Gender</th><th>Phone</th><th>Actions</th>
+          <th>Name</th><th>Email</th><th>Age</th><th>Gender</th><th>Phone</th><th>Edit/Delete</th>
         </tr>
       </thead>
       <tbody id="userTable"></tbody>
@@ -216,10 +216,6 @@
     const emailInput = document.getElementById('email');
     const ageInput = document.getElementById('age');
     const phoneInput = document.getElementById('phone');
-
-    const emailError = document.getElementById('emailError');
-    const ageError = document.getElementById('ageError');
-    const phoneError = document.getElementById('phoneError');
 
 
     function validateEmail(email) {
@@ -316,23 +312,7 @@
       const age = Number(form.age.value);
       const gender = form.gender.value;
       const phone = form.phone.value.trim();
-
       
-      if (!validateEmail(email)) {
-        alert('Email must end with @gmail.com');
-        form.email.focus();
-        return;
-      }
-      if (!validateAge(age)) {
-        alert('Age must be a positive integer');
-        form.age.focus();
-        return;
-      }
-      if (!validatePhone(phone)) {
-        alert('Phone number must be exactly 10 digits');
-        form.phone.focus();
-        return;
-      }
 
       const user = { name, email, age, gender, phone };
       const editIndex = form.editIndex.value;
