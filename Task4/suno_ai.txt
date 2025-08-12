@@ -1,0 +1,110 @@
+SUNO AI
+
+
+
+-------------------------------------CODE FOR 'SIMPLE' --------------------------------------------------
+1. To autofill field 'Describe your song' and to autoclick 'Create' button :
+
+function simple_fill() {
+  const textarea = document.querySelector('textarea[data-testid="prompt-input-textarea"]');
+  const button = document.querySelector('button[data-testid="create-button"]');
+
+  if (!textarea || !button) {
+    console.error("❌ Prompt box or Create button not found!");
+    return;
+  }
+
+  const prompt = "Dreamy synthwave ballad for neon city nights";
+
+  textarea.value = prompt;
+  textarea.dispatchEvent(new Event('input', { bubbles: true }));
+
+  button.click();
+}
+
+simple_fill();
+
+
+--------------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------
+
+
+----------------------------------------CODE FOR 'CUSTOM'------------------------------------------------
+
+1.To autofill fields like 'Lyrics, Style and Title of the song' and to autoclick 'Create' button :
+
+function custom_fill() {
+  const lyricsBox = document.querySelector('textarea[data-testid="lyrics-input-textarea"]');
+  const styleBox = document.querySelector('textarea[data-testid="tag-input-textarea"]');
+  const titleBox = document.querySelector('input[placeholder="Enter song title"]');
+  const createBtn = document.querySelector('button[data-testid="create-button"]');
+
+  if (!lyricsBox || !styleBox || !titleBox || !createBtn) {
+    console.error("❌ One or more fields/buttons not found!");
+    return;
+  }
+
+  const lyrics = "Under neon skies, we run through midnight streets, chasing dreams that never sleep.";
+  const style = "Synthwave";
+  const title = "Neon Skies";
+
+  function fillReactInput(el, value) {
+    const setter = Object.getOwnPropertyDescriptor(el._proto_, 'value').set;
+    setter.call(el, value);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  fillReactInput(lyricsBox, lyrics);
+  fillReactInput(styleBox, style);
+  fillReactInput(titleBox, title);
+
+  const check = setInterval(() => {
+    if (!createBtn.disabled) {
+      clearInterval(check);
+      createBtn.click();
+    }
+  }, 100);
+}
+
+custom_fill();
+
+---------------------------------------------------------------
+
+2.To autofill fields like 'Lyrics, Style and Title of the song' and to autoclick 'Create' button 
+and also to use Mutation Observer concept to fetch data (ie, the song that has been created) :
+
+function custom_fill() {
+  const lyricsBox = document.querySelector('textarea[data-testid="lyrics-input-textarea"]');
+  const styleBox = document.querySelector('textarea[data-testid="tag-input-textarea"]');
+  const titleBox = document.querySelector('input[placeholder="Enter song title"]');
+  const createBtn = document.querySelector('button[data-testid="create-button"]');
+
+  if (!lyricsBox || !styleBox || !titleBox || !createBtn) {
+    console.error("❌ One or more fields/buttons not found!");
+    return;
+  }
+
+  const lyrics = "மழைத்துளிகள் விழும் நேரம், உன் கண்களில் கனவு வீசும் போலிருந்தது.";
+  const style = "தமிழ் மெலோடி";
+  const title = "மழைத்துளிகள்";
+
+  function fillReactInput(el, value) {
+    const setter = Object.getOwnPropertyDescriptor(el._proto_, 'value').set;
+    setter.call(el, value);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  fillReactInput(lyricsBox, lyrics);
+  fillReactInput(styleBox, style);
+  fillReactInput(titleBox, title);
+
+
+  const check = setInterval(() => {
+    if (!createBtn.disabled) {
+      clearInterval(check);
+      createBtn.click();
+    }
+  }, 100);
+}
+
+custom_fill();
