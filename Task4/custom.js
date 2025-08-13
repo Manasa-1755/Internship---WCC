@@ -64,11 +64,13 @@ function observeNewSong(callback) {
           // Poll until title appears
           const poll = setInterval(() => {
             const titleSpan = node.querySelector('span.line-clamp-1[title]');
-            const lyricsDiv = node.querySelector('div[data-testid="lyrics"]');
             const title = titleSpan?.getAttribute('title') || '';
-            const lyrics = lyricsDiv?.innerText || '';
 
-            if (title && title !== "Untitled") {
+            // Get the lyrics directly from the creation textarea
+            const lyricsBox = document.querySelector('textarea[data-testid="lyrics-input-textarea"]');
+            const lyrics = lyricsBox?.value || '';
+
+            if (title && title !== "Untitled" && lyrics.trim()) {
               callback({ title, lyrics });
               clearInterval(poll);
               observer.disconnect();
@@ -94,10 +96,13 @@ function custom_fill() {
     return;
   }
 
-  // Your custom song data
-  const lyrics = "Under neon skies, we run through midnight streets, chasing dreams that never sleep.";
-  const style = "Synthwave";
-  const title = "Neon Skies";
+  // Tamil jazz-style lyrics inspired by Harris Jayaraj
+  const lyrics = "மழைத் துளியில் காதல் சிம்பொனி,\n" +
+                 "நிலா ஒளியில் பியானோ மெலடி,\n" +
+                 "நீ வந்தால் ஹார்மனி கூவுமே,\n" +
+                 "ஜாஸ் இசையில் இதயம் ஆடும் நேசமே.";
+  const style = "Jazz, Tamil, Harris Jayaraj style";
+  const title = "மழைத் துளி ஜாஸ் (Mazhai Thuli Jazz)";
 
   setReactValue(lyricsBox, lyrics);
   setReactValue(styleBox, style);
