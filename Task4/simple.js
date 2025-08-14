@@ -1,6 +1,13 @@
 async function simple_fill() {
   const wait = (ms) => new Promise(res => setTimeout(res, ms));
 
+  // React-safe value setter
+  function setReactValue(el, value) {
+    const setter = Object.getOwnPropertyDescriptor(el.__proto__, 'value').set;
+    setter.call(el, value);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
   const waitForElement = async (selector, container = document, timeout = 300000, label = "") => {
     const start = Date.now();
     let lastLog = 0;
@@ -39,7 +46,7 @@ async function simple_fill() {
     return "(Lyrics not fully loaded)";
   };
 
-  console.log("Starting procedures...");
+  console.log("Starting the automated process...");
 
   // Step 1: Fill prompt & click create
   const textarea = document.querySelector('textarea[data-testid="prompt-input-textarea"]');
@@ -50,16 +57,15 @@ async function simple_fill() {
     return;
   }
 
-  textarea.value = "Write a romantic pop song in the style of Taylor Swift about a summer love story";
-  textarea.dispatchEvent(new Event('input', { bubbles: true }));
-  console.log("Prompt has been filled");
+  setReactValue(textarea, "Write a romantic pop song in the style of Taylor Swift about a summer love story");
+  console.log("Prompt has been filled automatically");
 
   // Store old first song
   const grid = document.querySelector('.react-aria-GridList');
   const oldFirstSong = grid?.querySelector('[role="row"], .react-aria-GridListItem');
 
   createBtn.click();
-  console.log("Clicked create button");
+  console.log("Clicked create button automatically");
 
   // Step 2: Wait for new first song
   console.log("⏳ Waiting for new song to appear...");
@@ -84,7 +90,7 @@ async function simple_fill() {
     console.error("❌ New song did not appear in time");
     return;
   }
-  console.log("New song has been detected");
+  console.log("New song has been detected automatically");
 
   // Step 3: Wait for "Publish" in that row
   const publishBtn = await waitForElement(
@@ -98,22 +104,27 @@ async function simple_fill() {
     console.error("❌ 'Publish' not detected in time");
     return;
   }
-  console.log("'Publish' detected for new song");
+  console.log("'Publish' detected for new song automatically");
 
   // Step 4: Click song to open sidebar
   newFirstSong.click();
-  console.log("Song has been opened in sidebar");
+  console.log("Song has been opened in sidebar automatically");
   await wait(1500);
 
-  // Step 5: Wait for title
-  const titleEl = await waitForElement('.flex.items-start.justify-between.pt-5 a.line-clamp-2', document, 60000, "song title");
+  // Step 5: Wait for title (updated selector)
+  const titleEl = await waitForElement(
+    'a.line-clamp-2.text-xl.text-foreground-primary',
+    document,
+    60000,
+    "song title"
+  );
   const title = titleEl?.innerText.trim() || "(No title)";
+  console.log("Title:", title);
 
   // Step 6: Wait for lyrics & ensure fully loaded
   const lyricsEl = await waitForElement('span.mt-4.mb-4', document, 300000, "lyrics");
   const lyrics = await waitForLyricsToLoad(lyricsEl);
 
-  console.log("Title:", title);
   console.log("Lyrics:", lyrics);
 }
 
