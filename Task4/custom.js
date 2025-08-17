@@ -91,7 +91,7 @@ Your memory lingers, soft yet strong.`;
                           console.log(" Style:", filledStyles);
                           console.log(" Lyrics:", filledLyrics);
 
-                          // === Step 5: Auto Download ===
+                          // Step 5: Auto Download 
                           const optionsButton = node.querySelector('button[aria-label="More Options"]');
                           if (!optionsButton) {
                             console.error("❌ Options button missing!");
@@ -144,4 +144,5 @@ Your memory lingers, soft yet strong.`;
   rowObserver.observe(workspace, { childList: true, subtree: true });
 }
 custom_fill();
+
 
