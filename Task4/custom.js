@@ -67,7 +67,7 @@ Your memory lingers, soft yet strong.`;
         if (node.nodeType === 1 && node.matches('[role="row"]')) {
           const label = node.getAttribute("aria-label");
           if (label === title) {
-            console.log(New song "${title}" has been detected!);
+            console.log(`New song "${title}" has been detected!`);
 
             // Step 3: Code to wait for Publish 
             const publishObserver = new MutationObserver((mutations2) => {
@@ -77,7 +77,7 @@ Your memory lingers, soft yet strong.`;
                     const publishSpans = node2.querySelectorAll("button span");
                     for (const span of publishSpans) {
                       if (span.textContent.trim() === "Publish") {
-                        console.log(Song "${title}" fully ready!);
+                        console.log(`Song "${title}" fully ready!`);
                         publishObserver.disconnect();
 
                         (async () => {
@@ -144,3 +144,4 @@ Your memory lingers, soft yet strong.`;
   rowObserver.observe(workspace, { childList: true, subtree: true });
 }
 custom_fill();
+
