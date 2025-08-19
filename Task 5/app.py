@@ -4,7 +4,7 @@ import requests
 app = Flask(__name__)
 app.secret_key = "supersecret"
 
-API_KEY = "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"
+API_KEY = "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"
 API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 def chat_with_model(messages, model="openai/gpt-4o-mini"):
@@ -48,3 +48,4 @@ def chat():
 
 if __name__ == "__main__":
     app.run(debug=True)
+
