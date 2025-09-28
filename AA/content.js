@@ -6,6 +6,10 @@
   let timerEl = null;
   let timerInterval = null;
 
+  function getCurrentTime() {
+    return new Date().toLocaleTimeString();
+  }
+  
   function showTimer() {
     if (timerEl) return;
     timerEl = document.createElement("div");
@@ -80,3 +84,4 @@
 
   console.log("%c[Meet Detector] Initialized, watching for meeting start/stop...", "color: #1a73e8; font-weight: bold;");
 })();
+
