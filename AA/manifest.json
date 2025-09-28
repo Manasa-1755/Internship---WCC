@@ -5,7 +5,8 @@
   "description": "Automatically record Google Meet tab with video + audio + mic",
   "permissions": [
     "tabs",
-    "downloads"
+    "downloads",
+    "tabCapture"
   ],
   "optional_permissions": [
     "microphone"
@@ -23,3 +24,4 @@
     }
   ]
 }
+
