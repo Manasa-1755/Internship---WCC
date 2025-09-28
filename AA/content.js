@@ -52,18 +52,20 @@
     if (active && !meetingStarted) {
       meetingStarted = true;
       startTime = Date.now();
-      console.log("%c[Meet Detector] Meeting started", "color: #0f9d58; font-weight: bold;");
+      console.log(`%cMeeting started at ${getCurrentTime()}`, "color: #0f9d58; font-weight: bold;");
       chrome.runtime.sendMessage({ type: "AUTO_START" });
       showTimer();
     } else if (!active && meetingStarted) {
       meetingStarted = false;
       const endTime = Date.now();
       const durationSec = Math.floor((endTime - startTime) / 1000);
-      console.log("%c[Meet Detector] Meeting ended", "color: #d93025; font-weight: bold;");
+
+      console.log(`%cMeeting ended at ${getCurrentTime()}`, "color: #d93025; font-weight: bold;");
       console.log(
-        `%c[Meet Detector] Duration: ${Math.floor(durationSec / 60)} min ${durationSec % 60} sec`,
+        `%cDuration: ${Math.floor(durationSec / 60)} min ${durationSec % 60} sec`,
         "color: #f4b400; font-weight: bold;"
       );
+
       chrome.runtime.sendMessage({ type: "AUTO_STOP" });
       hideTimer();
       startTime = null;
