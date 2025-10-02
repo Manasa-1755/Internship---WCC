@@ -2,7 +2,7 @@ let mediaRecorder;
 let recordedChunks = [];
 let isRecording = false;
 
-// Start recording from popup or background
+// ----------------- Handle messages -----------------
 chrome.runtime.onMessage.addListener(async (msg, sender, sendResponse) => {
 
   if (msg.command === "start") {
@@ -26,9 +26,13 @@ chrome.runtime.onMessage.addListener(async (msg, sender, sendResponse) => {
 
       mediaRecorder.start();
       isRecording = true;
-      chrome.storage.local.set({ isRecording: true });
+
+      // Store start time for popup timer
+      chrome.storage.local.set({ isRecording: true, recordingStartTime: Date.now() });
+
       sendResponse({ status: "Recording started" });
     });
+
     return true; // async response
   }
 
@@ -36,15 +40,14 @@ chrome.runtime.onMessage.addListener(async (msg, sender, sendResponse) => {
     if (!isRecording || !mediaRecorder) return sendResponse({ status: "Not recording" });
     mediaRecorder.stop();
     isRecording = false;
-    chrome.storage.local.set({ isRecording: false });
+    chrome.storage.local.set({ isRecording: false, recordingStartTime: null });
     sendResponse({ status: "Recording stopped" });
   }
 
-  if (msg.command === "leaveDetected") {
-    if (mediaRecorder && mediaRecorder.state === "recording") {
-      mediaRecorder.stop();
-      isRecording = false;
-      chrome.storage.local.set({ isRecording: false });
-    }
-  }
+  if (msg.command === "stop" || msg.command === "leaveDetected") {
+  if (mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.stop();
+  isRecording = false;
+  chrome.storage.local.set({ isRecording: false, recordingStartTime: null });
+}
+
 });
