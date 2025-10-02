@@ -11,15 +11,20 @@ const autoRecordToggle = document.getElementById("autoRecordToggle");
 let tabStream, micStream, audioEl;
 
 // ----------------- Timer -----------------
-function startTimer() {
-  secondsElapsed = 0;
-  timerEl.textContent = "00:00";
+function startTimer(initialSeconds = 0) {
+  secondsElapsed = initialSeconds;
+  updateTimerDisplay();
+
   timerInterval = setInterval(() => {
     secondsElapsed++;
-    const minutes = String(Math.floor(secondsElapsed / 60)).padStart(2, "0");
-    const seconds = String(secondsElapsed % 60).padStart(2, "0");
-    timerEl.textContent = `${minutes}:${seconds}`;
+    updateTimerDisplay();
   }, 1000);
+}
+
+function updateTimerDisplay() {
+  const minutes = String(Math.floor(secondsElapsed / 60)).padStart(2, "0");
+  const seconds = String(secondsElapsed % 60).padStart(2, "0");
+  timerEl.textContent = `${minutes}:${seconds}`;
 }
 
 function stopTimer() {
@@ -52,6 +57,18 @@ function monitorLeaveButton(tabId) {
   });
 }
 
+// ----------------- Restore Timer State on Popup Load -----------------
+chrome.storage.local.get(["isRecording", "recordingStartTime"], ({ isRecording, recordingStartTime }) => {
+  if (isRecording && recordingStartTime) {
+    const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
+    startTimer(elapsed);
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+  } else {
+    stopTimer(); // make sure timer is reset if not recording
+  }
+});
+
 // ----------------- Start Recording -----------------
 async function startRecording() {
   chrome.tabs.query({ active: true, currentWindow: true }, async ([tab]) => {
@@ -59,10 +76,9 @@ async function startRecording() {
 
     chrome.tabCapture.capture({ audio: true, video: true }, async (capturedTabStream) => {
       if (!capturedTabStream) return alert("Failed to capture tab");
-
       tabStream = capturedTabStream;
 
-      // Play tab audio
+      // Play tab audio (hidden)
       audioEl = document.createElement("audio");
       audioEl.autoplay = true;
       audioEl.srcObject = tabStream;
@@ -76,15 +92,8 @@ async function startRecording() {
         const ctx = new AudioContext();
         const destination = ctx.createMediaStreamDestination();
 
-        if (tabStream.getAudioTracks().length) {
-          const tabSource = ctx.createMediaStreamSource(tabStream);
-          tabSource.connect(destination);
-        }
-
-        if (micStream.getAudioTracks().length) {
-          const micSource = ctx.createMediaStreamSource(micStream);
-          micSource.connect(destination);
-        }
+        if (tabStream.getAudioTracks().length) ctx.createMediaStreamSource(tabStream).connect(destination);
+        if (micStream.getAudioTracks().length) ctx.createMediaStreamSource(micStream).connect(destination);
 
         finalStream = new MediaStream([...tabStream.getVideoTracks(), ...destination.stream.getAudioTracks()]);
       } catch {
@@ -108,12 +117,17 @@ async function startRecording() {
 
         startBtn.disabled = false;
         stopBtn.disabled = true;
+
+        chrome.storage.local.set({ isRecording: false, recordingStartTime: null });
       };
 
       mediaRecorder.start();
       startBtn.disabled = true;
       stopBtn.disabled = false;
-      startTimer();
+
+      chrome.storage.local.set({ isRecording: true, recordingStartTime: Date.now() });
+
+      startTimer(0);
 
       // Monitor leave button
       monitorLeaveButton(tab.id);
@@ -122,5 +136,11 @@ async function startRecording() {
 }
 
 // ----------------- Event Listeners -----------------
-startBtn.addEventListener("click", () => startRecording());
-stopBtn.addEventListener("click", () => { if (mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.stop(); });
+startBtn.addEventListener("click", startRecording);
+// ----------------- Stop Recording -----------------
+stopBtn.addEventListener("click", () => {
+  if (mediaRecorder && mediaRecorder.state === "recording") {
+    mediaRecorder.stop();
+    stopTimer(); // STOP the timer immediately
+  }
+});
