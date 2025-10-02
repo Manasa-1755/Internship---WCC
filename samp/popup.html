@@ -5,12 +5,18 @@
   <style>
     body { font-family: Arial; padding: 20px; }
     button { margin: 5px; padding: 10px 20px; }
+    #timer { font-size: 16px; margin-top: 10px; }
   </style>
 </head>
 <body>
   <h2>Google Meet Recorder</h2>
+  <label>
+    <input type="checkbox" id="autoRecordToggle"> Enable Auto-Record
+  </label>
+  <br>
   <button id="startBtn">Start Recording</button>
   <button id="stopBtn" disabled>Stop & Download</button>
+  <div id="timer">00:00</div>
   <script src="popup.js"></script>
 </body>
 </html>
