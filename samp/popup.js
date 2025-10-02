@@ -1,87 +1,108 @@
 let mediaRecorder;
 let recordedChunks = [];
+let timerInterval;
+let secondsElapsed = 0;
+
 const startBtn = document.getElementById("startBtn");
-const stopBtn = document.getElementById("stopBtn");
-let audioEl; // hidden audio element for playback
-let tabStream, micStream;
+const stopBtn  = document.getElementById("stopBtn");
+const timerEl  = document.getElementById("timer");
+const autoRecordToggle = document.getElementById("autoRecordToggle");
+
+let tabStream, micStream, audioEl;
+
+// ----------------- Timer -----------------
+function startTimer() {
+  secondsElapsed = 0;
+  timerEl.textContent = "00:00";
+  timerInterval = setInterval(() => {
+    secondsElapsed++;
+    const minutes = String(Math.floor(secondsElapsed / 60)).padStart(2, "0");
+    const seconds = String(secondsElapsed % 60).padStart(2, "0");
+    timerEl.textContent = `${minutes}:${seconds}`;
+  }, 1000);
+}
+
+function stopTimer() {
+  clearInterval(timerInterval);
+  timerEl.textContent = "00:00";
+}
+
+// ----------------- Auto-Record Toggle -----------------
+autoRecordToggle.addEventListener("change", () => {
+  if (autoRecordToggle.checked) {
+    stopBtn.style.display = "none";
+  } else {
+    stopBtn.style.display = "inline-block";
+  }
+});
+
+// ----------------- Monitor Leave Button -----------------
+function monitorLeaveButton(tabId) {
+  chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => {
+      const observer = new MutationObserver(() => {
+        const leaveBtn = document.querySelector('[aria-label="Leave call"]');
+        if (leaveBtn && leaveBtn.offsetParent !== null) {
+          chrome.runtime.sendMessage({ command: "leaveDetected" });
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    }
+  });
+}
 
 // ----------------- Start Recording -----------------
-startBtn.addEventListener("click", () => {
+async function startRecording() {
   chrome.tabs.query({ active: true, currentWindow: true }, async ([tab]) => {
-    if (!tab || !tab.url.includes("meet.google.com")) {
-      return alert("Please open an active Google Meet tab");
-    }
+    if (!tab || !tab.url.includes("meet.google.com")) return alert("Open a Google Meet tab");
 
     chrome.tabCapture.capture({ audio: true, video: true }, async (capturedTabStream) => {
-      if (!capturedTabStream) return alert("Failed to capture tab audio/video");
+      if (!capturedTabStream) return alert("Failed to capture tab");
 
       tabStream = capturedTabStream;
 
-      // Play tab audio live in popup
+      // Play tab audio
       audioEl = document.createElement("audio");
       audioEl.autoplay = true;
       audioEl.srcObject = tabStream;
       audioEl.style.display = "none";
       document.body.appendChild(audioEl);
 
+      // Try mic capture + merge
       let finalStream;
       try {
-        // Capture microphone
-        micStream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: true },
-          video: false
-        });
-
-        // Mix tab + mic audio
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
         const ctx = new AudioContext();
         const destination = ctx.createMediaStreamDestination();
 
-        if (tabStream.getAudioTracks().length > 0) {
+        if (tabStream.getAudioTracks().length) {
           const tabSource = ctx.createMediaStreamSource(tabStream);
           tabSource.connect(destination);
         }
-        if (micStream.getAudioTracks().length > 0) {
+
+        if (micStream.getAudioTracks().length) {
           const micSource = ctx.createMediaStreamSource(micStream);
           micSource.connect(destination);
         }
 
-        // Merge video + mixed audio
-        finalStream = new MediaStream([
-          ...tabStream.getVideoTracks(),
-          ...destination.stream.getAudioTracks()
-        ]);
-
-      } catch (err) {
-        console.warn("Mic capture failed, fallback to tab only:", err);
+        finalStream = new MediaStream([...tabStream.getVideoTracks(), ...destination.stream.getAudioTracks()]);
+      } catch {
         finalStream = tabStream;
       }
 
-      // Setup MediaRecorder
       mediaRecorder = new MediaRecorder(finalStream, { mimeType: "video/webm; codecs=vp8,opus" });
       recordedChunks = [];
 
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) recordedChunks.push(e.data);
-      };
+      mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
 
       mediaRecorder.onstop = () => {
-        // Hide floating timer in the tab
-        chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
-          chrome.tabs.sendMessage(tab.id, { type: "HIDE_TIMER" });
-        });
-
+        stopTimer();
         const blob = new Blob(recordedChunks, { type: "video/webm" });
         const url = URL.createObjectURL(blob);
-        const filename = `gmeet_recording_${Date.now()}.webm`;
-        chrome.downloads.download({ url, filename });
+        chrome.downloads.download({ url, filename: `gmeet_recording_${Date.now()}.webm` });
 
-        // Cleanup
-        if (audioEl) {
-          audioEl.pause();
-          audioEl.srcObject = null;
-          audioEl.remove();
-          audioEl = null;
-        }
+        if (audioEl) { audioEl.pause(); audioEl.remove(); audioEl = null; }
         if (tabStream) tabStream.getTracks().forEach(t => t.stop());
         if (micStream) micStream.getTracks().forEach(t => t.stop());
 
@@ -92,18 +113,14 @@ startBtn.addEventListener("click", () => {
       mediaRecorder.start();
       startBtn.disabled = true;
       stopBtn.disabled = false;
+      startTimer();
 
-      // Show floating timer in the tab
-      chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
-        chrome.tabs.sendMessage(tab.id, { type: "SHOW_TIMER" });
-      });
+      // Monitor leave button
+      monitorLeaveButton(tab.id);
     });
   });
-});
+}
 
-// ----------------- Stop Recording -----------------
-stopBtn.addEventListener("click", () => {
-  if (mediaRecorder && mediaRecorder.state === "recording") {
-    mediaRecorder.stop();
-  }
-});
+// ----------------- Event Listeners -----------------
+startBtn.addEventListener("click", () => startRecording());
+stopBtn.addEventListener("click", () => { if (mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.stop(); });
