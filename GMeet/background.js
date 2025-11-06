@@ -215,19 +215,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         });
         sendResponse({ success: true });
       }
-
-      else if (message.action === "healthCheck") {
-        console.log("❤️ Background health check received");
-        sendResponse({ status: "healthy", service: "background" });
-      }
-
-      else if (message.action === "cleanupFailedRecorders") {
-        console.log("🧹 Manual cleanup of failed recorders requested");
-        detectAndCleanupFailedRecorderTabs().then(() => {
-          sendResponse({ success: true });
-        });
-        return true;
-      }
       
       else {
         sendResponse({ success: false, reason: "unknown_action" });
@@ -300,114 +287,6 @@ function notifyAllMeetTabs(enabled) {
   });
 }
 
-function detectAndCleanupFailedRecorderTabs() {
-  return new Promise((resolve) => {
-    chrome.tabs.query({ url: chrome.runtime.getURL("recorder.html") }, (tabs) => {
-      if (tabs.length === 0) {
-        console.log("✅ No recorder tabs to check");
-        resolve();
-        return;
-      }
-
-      let checkedCount = 0;
-      let failedTabs = [];
-
-      tabs.forEach(tab => {
-        // Send a health check to each recorder tab
-        chrome.tabs.sendMessage(tab.id, { action: "healthCheck" }, (response) => {
-          checkedCount++;
-          
-          if (chrome.runtime.lastError || !response) {
-            console.log(`❌ Recorder tab ${tab.id} is unresponsive - marking for closure`);
-            failedTabs.push(tab.id);
-          } else if (response.status === "healthy") {
-            console.log(`✅ Recorder tab ${tab.id} is healthy`);
-          }
-
-          // When all tabs are checked, close the failed ones
-          if (checkedCount === tabs.length) {
-            if (failedTabs.length > 0) {
-              console.log(`🛑 Closing ${failedTabs.length} failed recorder tabs`);
-              
-              failedTabs.forEach(tabId => {
-                chrome.tabs.remove(tabId, () => {
-                  console.log(`✅ Closed failed recorder tab: ${tabId}`);
-                });
-              });
-
-              // Refresh meeting state after closing failed tabs
-              refreshMeetingState();
-            } else {
-              console.log("✅ All recorder tabs are healthy");
-            }
-            resolve();
-          }
-        });
-      });
-
-      // Fallback: If no responses within 3 seconds, assume all are failed
-      setTimeout(() => {
-        if (checkedCount < tabs.length) {
-          console.log("⏰ Health check timeout - assuming unresponsive tabs are failed");
-          
-          tabs.forEach(tab => {
-            if (!failedTabs.includes(tab.id)) {
-              failedTabs.push(tab.id);
-            }
-          });
-
-          if (failedTabs.length > 0) {
-            failedTabs.forEach(tabId => {
-              chrome.tabs.remove(tabId, () => {
-                console.log(`✅ Closed unresponsive recorder tab: ${tabId}`);
-              });
-            });
-            refreshMeetingState();
-          }
-          resolve();
-        }
-      }, 3000);
-    });
-  });
-}
-
-// Function to refresh meeting state globally
-function refreshMeetingState() {
-  console.log("🔄 Refreshing global meeting state after cleanup");
-  
-  // Reset background states
-  currentRecordingTab = null;
-  isAutoRecording = false;
-  
-  if (autoStartTimeout) {
-    clearTimeout(autoStartTimeout);
-    autoStartTimeout = null;
-  }
-
-  // Clear storage
-  chrome.storage.local.set({ 
-    isRecording: false,
-    recordingStoppedByTabClose: true 
-  });
-
-  // Notify all Meet tabs to reset their states
-  chrome.tabs.query({ url: "https://*.meet.google.com/*" }, (tabs) => {
-    tabs.forEach(tab => {
-      chrome.tabs.sendMessage(tab.id, { 
-        action: "forceResetAndRetry" 
-      }, (response) => {
-        if (chrome.runtime.lastError) {
-          console.log(`⚠️ Could not notify Meet tab ${tab.id}:`, chrome.runtime.lastError.message);
-        } else {
-          console.log(`✅ Notified Meet tab ${tab.id} to reset state`);
-        }
-      });
-    });
-  });
-
-  console.log("✅ Global meeting state refreshed");
-}
-
 // Improved recording start with activeTab validation
 function startRecordingForTab(tabId) {
   console.log("🎬 Creating recorder tab for auto recording...");
@@ -449,7 +328,8 @@ function startRecordingForTab(tabId) {
               currentRecordingTab = null;
               isAutoRecording = false;
             }
-          } else {            
+          } else {
+            console.log("✅ Auto recording started successfully!");
             currentRecordingTab = tabId;
             isAutoRecording = true;
           }
