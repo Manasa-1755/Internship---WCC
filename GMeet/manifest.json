@@ -31,7 +31,7 @@
   "web_accessible_resources": [
     {
       "resources": ["recorder.html", "recorder.js"],
-      "matches": ["<all_urls>", "chrome-extension://*/*"]
+      "matches": ["https://meet.google.com/*"]
     }
   ]
 }
