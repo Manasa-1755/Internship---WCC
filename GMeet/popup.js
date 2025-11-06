@@ -1,4 +1,4 @@
-// POPUP - RESOLVED ASYNC ERRORS
+// FIXED POPUP - RESOLVED ASYNC ERRORS
 let activeTabId;
 let isRecording = false;
 let autoRecordEnabled = false;
@@ -8,8 +8,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   console.log("🔍 Popup opened - checking tab...");
 
   try {
-    await checkForFailedRecorders();
-    
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
     if (tab && tab.url && isMeetTab(tab.url)) {
@@ -80,17 +78,6 @@ function updateUIForReady() {
   document.getElementById("startBtn").textContent = "Start Recording";
   document.getElementById("startBtn").style.backgroundColor = activeTabId ? "#4CAF50" : "#666";
   document.getElementById("stopBtn").style.backgroundColor = "#666";
-}
-
-async function checkForFailedRecorders() {
-  try {
-    const response = await chrome.runtime.sendMessage({ action: "cleanupFailedRecorders" });
-    if (response?.success) {
-      console.log("✅ Manual cleanup completed");
-    }
-  } catch (error) {
-    console.log("✅ No failed recorders found");
-  }
 }
 
 // AUTO RECORD PERMISSION
