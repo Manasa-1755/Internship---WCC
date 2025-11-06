@@ -102,29 +102,6 @@ function broadcastTimerUpdate(timeStr) {
     });
 }
 
-function checkRecorderInitialization() {
-  // If the page doesn't have basic functionality after 5 seconds, it's failed
-  setTimeout(() => {
-    if (typeof mediaRecorder === 'undefined' && !isRecording) {
-      console.error("❌ Recorder page failed to initialize properly");
-      safeSetStatus("❌ Recorder failed - closing tab");
-      
-      // Notify background about failure
-      chrome.runtime.sendMessage({ 
-        action: "recorderFailed",
-        error: "Failed to initialize",
-        tabId: currentTabId
-      });
-      
-      // Close tab after short delay
-      setTimeout(() => {
-        window.close();
-      }, 2000);
-    }
-  }, 5000);
-}
-
-
 // Proper async message handling
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log("📨 Recorder received:", message.action);
@@ -146,17 +123,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         stopRecording();
         sendResponse({ success: true });
       }
-
-      else if (message.action === "healthCheck") {
-        console.log("❤️ Recorder health check received");
-          sendResponse({ 
-          status: "healthy", 
-          service: "recorder",
-          isRecording: isRecording,
-          chunksCount: recordedChunks.length
-        });
-      }
-
       else {
         sendResponse({ success: false, reason: "unknown_action" });
       }
@@ -775,6 +741,3 @@ window.addEventListener('unload', () => {
     sessionStorage.removeItem('pendingRecording');
   }
 });
-
-console.log("🎬 GMeet Recorder tab loaded - starting initialization check");
-checkRecorderInitialization();
