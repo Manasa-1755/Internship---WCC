@@ -1,6 +1,9 @@
-// WORKING CODE - STATUS
+// BACKGROUND - Message routing, Tab management, Permission handling, Recording coordination, Auto-recording logic
+
 let userPermissionGranted = false;
 let currentRecordingTab = null;
+let isAutoRecording = false;
+let autoStartTimeout = null;
 
 // Load saved permission state
 chrome.storage.local.get(['autoRecordPermission'], (result) => {
@@ -19,481 +22,470 @@ function isMeetTab(url) {
   return url && (url.includes("meet.google.com/"));
 }
 
-// Listen for messages from popup/content
+// Function to close recorder tabs from background
+function closeAllRecorderTabs() {
+    return new Promise((resolve) => {
+        chrome.tabs.query({ url: chrome.runtime.getURL("recorder.html") }, (tabs) => {
+            if (tabs.length === 0) {
+                console.log("✅ No recorder tabs found to close");
+                resolve();
+                return;
+            }
+            
+            let closedCount = 0;
+            tabs.forEach(tab => {
+                chrome.tabs.remove(tab.id, () => {
+                    closedCount++;
+                    console.log(`✅ Background closed recorder tab: ${tab.id}`);
+                    
+                    if (closedCount === tabs.length) {
+                        console.log("✅ Background: All recorder tabs closed");
+                        resolve();
+                    }
+                });
+            });
+        });
+    });
+}
+
+// Proper async message handling
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log("📨 Background received:", message.action);
   
-  if (message.action === "grantAutoRecordPermission") {
-    userPermissionGranted = true;
-    chrome.storage.local.set({ autoRecordPermission: true }, () => notifyAllMeetTabs(true));
-    sendResponse({ success: true });
-  }
-  
-  if (message.action === "revokeAutoRecordPermission") {
-    userPermissionGranted = false;
-    chrome.storage.local.set({ autoRecordPermission: false }, () => notifyAllMeetTabs(false));
-    sendResponse({ success: true });
-  }
-  
-  if (message.action === "autoStartRecording") {
-    if (userPermissionGranted) startRecordingForTab(sender.tab.id);
-    sendResponse({ success: true });
-  }
+  // Handle async responses properly
+  const handleAsync = async () => {
+    try {
+      if (message.action === "grantAutoRecordPermission") {
+        userPermissionGranted = true;
+        await chrome.storage.local.set({ autoRecordPermission: true });
+        notifyAllMeetTabs(true);
+        console.log("✅ Auto record permission granted");
+        sendResponse({ success: true });
+      }
+      
+      else if (message.action === "revokeAutoRecordPermission") {
+        userPermissionGranted = false;
+        await chrome.storage.local.set({ autoRecordPermission: false });
+        notifyAllMeetTabs(false);
+        console.log("❌ Auto record permission revoked");
+        sendResponse({ success: true });
+      }
 
-  if (message.action === "autoStopRecording") {
-    stopAllRecordings();
-    sendResponse({ success: true });
-  }
-  
-  if (message.action === "checkMeetingStatus") {
-    chrome.tabs.sendMessage(sender.tab.id, { action: "checkMeetingStatus" }, sendResponse);
-    return true;
-  }
-
-  // Close recorder tab for auto mode
-  if (message.action === "closeRecorderTab") {
-    console.log("🛑 Closing recorder tab for auto mode");
-    closeAllRecorderTabs();
-    sendResponse({ success: true });
-  }
-
-  // Stop recording when meeting ends (both modes) - WITH AUTO DOWNLOAD
-if (message.action === "stopRecordingOnMeetingEnd") {
-  console.log("🛑 Meeting ended - AUTO-DOWNLOADING recording");
-  
-  chrome.tabs.query({ url: chrome.runtime.getURL("recorder.html") }, (tabs) => {
-    if (tabs.length > 0) {
-      tabs.forEach(tab => {
-        // Force auto-download by setting isAutoRecord = true
-        chrome.tabs.sendMessage(tab.id, { 
-          action: "stopRecording",
-          forceAutoDownload: true 
-        }, (response) => {
-          if (chrome.runtime.lastError) {
-            console.log("⚠️ Recorder tab not responding");
-          } else {
-            console.log("✅ Auto-download command sent");
-          }
-        });
-      });
-    }
-  });
-  currentRecordingTab = null;
-  sendResponse({ success: true });
-}
-
-// 🆕 NEW: Route status messages to active Meet tab
-  if (message.action === "showMeetStatus" || message.action === "updateMeetTimer") {
-    // Find all active Meet tabs and send the message
-    chrome.tabs.query({ url: "https://*.meet.google.com/*" }, (tabs) => {
-      tabs.forEach(tab => {
-        if (tab.id !== sender.tab?.id) { // Don't send back to recorder tab
-          chrome.tabs.sendMessage(tab.id, message);
-        }
-      });
-    });
-    sendResponse({ success: true });
-  }
-
-  return true;
-});
-
-// Close all recorder tabs
-function closeAllRecorderTabs() {
-  chrome.tabs.query({ url: chrome.runtime.getURL("recorder.html") }, (tabs) => {
-    tabs.forEach(tab => {
-      // Just send stop message, recorder will close itself after download
-      chrome.tabs.sendMessage(tab.id, { action: "stopRecording" });
-      console.log("✅ Stop message sent to recorder tab");
-    });
-  });
-  currentRecordingTab = null;
-}
-
-// Notify all Meet tabs about permission change
-function notifyAllMeetTabs(enabled) {
-  chrome.tabs.query({ url: ["https://*.meet.google.com/*"] }, (tabs) => {
-    tabs.forEach(tab => {
-      chrome.tabs.sendMessage(tab.id, {
-        action: "updateAutoRecordPermission",
-        enabled: enabled
-      });
-    });
-  });
-}
-
-function startRecordingForTab(tabId) {
-  if (currentRecordingTab) return;
-
-  chrome.tabs.create({ url: chrome.runtime.getURL("recorder.html"), active: false }, (recorderTab) => {
-    const attemptStart = (retry = 0) => {
-      chrome.tabs.sendMessage(recorderTab.id, { action: "startRecording", tabId, autoRecord: true }, (resp) => {
-        if (chrome.runtime.lastError) {
-          if (retry < 2) setTimeout(() => attemptStart(retry + 1), 1000);
-          else console.error("❌ Failed to start recording");
-        } else currentRecordingTab = tabId;
-      });
-    };
-    setTimeout(() => attemptStart(), 1500);
-  });
-}
-
-function stopAllRecordings() {
-  chrome.tabs.query({ url: chrome.runtime.getURL("recorder.html") }, (tabs) => {
-    if (tabs.length > 0) {
-      tabs.forEach(tab => {
-        // 🆕 SEND STOP MESSAGE TO RECORDER TAB
-        chrome.tabs.sendMessage(tab.id, { action: "stopRecording" }, (response) => {
-          if (chrome.runtime.lastError) {
-            console.log("⚠️ Recorder tab not responding, might be already closed");
-          } else {
-            console.log("✅ Stop message sent to recorder tab");
-          }
-        });
-      });
-    } else {
-      console.log("⚠️ No recorder tabs found");
-    }
-  });
-  currentRecordingTab = null;
-}
-
-// Stop recording if source tab closes
-chrome.tabs.onRemoved.addListener((tabId) => {
-  if (tabId === currentRecordingTab) stopAllRecordings();
-});
-
-// Keep service worker alive
-setInterval(() => chrome.runtime.getPlatformInfo(() => {}), 20000);
-
-
-/*
-// WORKING CODE - 1
-let userPermissionGranted = false;
-let currentRecordingTab = null;
-
-// Load saved permission state
-chrome.storage.local.get(['autoRecordPermission'], (result) => {
-  userPermissionGranted = result.autoRecordPermission || false;
-  console.log("🔐 Auto record permission:", userPermissionGranted);
-});
-
-// Listen for Meet tab updates
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === "complete" && isMeetTab(tab.url)) {
-    console.log("✅ Meet tab detected:", tabId, tab.url);
-  }
-});
-
-function isMeetTab(url) {
-  return url && (url.includes("meet.google.com/"));
-}
-
-// Listen for messages from popup/content
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log("📨 Background received:", message.action);
-  
-  if (message.action === "grantAutoRecordPermission") {
-    userPermissionGranted = true;
-    chrome.storage.local.set({ autoRecordPermission: true }, () => notifyAllMeetTabs(true));
-    sendResponse({ success: true });
-  }
-  
-  if (message.action === "revokeAutoRecordPermission") {
-    userPermissionGranted = false;
-    chrome.storage.local.set({ autoRecordPermission: false }, () => notifyAllMeetTabs(false));
-    sendResponse({ success: true });
-  }
-  
-  if (message.action === "autoStartRecording") {
-    if (userPermissionGranted) startRecordingForTab(sender.tab.id);
-    sendResponse({ success: true });
-  }
-
-  if (message.action === "autoStopRecording") {
-    stopAllRecordings();
-    sendResponse({ success: true });
-  }
-  
-  if (message.action === "checkMeetingStatus") {
-    chrome.tabs.sendMessage(sender.tab.id, { action: "checkMeetingStatus" }, sendResponse);
-    return true;
-  }
-
-  // Close recorder tab for auto mode
-  if (message.action === "closeRecorderTab") {
-    console.log("🛑 Closing recorder tab for auto mode");
-    closeAllRecorderTabs();
-    sendResponse({ success: true });
-  }
-
-  // Stop recording when meeting ends (both modes) - WITH AUTO DOWNLOAD
-if (message.action === "stopRecordingOnMeetingEnd") {
-  console.log("🛑 Meeting ended - AUTO-DOWNLOADING recording");
-  
-  chrome.tabs.query({ url: chrome.runtime.getURL("recorder.html") }, (tabs) => {
-    if (tabs.length > 0) {
-      tabs.forEach(tab => {
-        // Force auto-download by setting isAutoRecord = true
-        chrome.tabs.sendMessage(tab.id, { 
-          action: "stopRecording",
-          forceAutoDownload: true 
-        }, (response) => {
-          if (chrome.runtime.lastError) {
-            console.log("⚠️ Recorder tab not responding");
-          } else {
-            console.log("✅ Auto-download command sent");
-          }
-        });
-      });
-    }
-  });
-  currentRecordingTab = null;
-  sendResponse({ success: true });
-}
-
-  return true;
-});
-
-// Close all recorder tabs
-function closeAllRecorderTabs() {
-  chrome.tabs.query({ url: chrome.runtime.getURL("recorder.html") }, (tabs) => {
-    tabs.forEach(tab => {
-      // Just send stop message, recorder will close itself after download
-      chrome.tabs.sendMessage(tab.id, { action: "stopRecording" });
-      console.log("✅ Stop message sent to recorder tab");
-    });
-  });
-  currentRecordingTab = null;
-}
-
-// Notify all Meet tabs about permission change
-function notifyAllMeetTabs(enabled) {
-  chrome.tabs.query({ url: ["https://*.meet.google.com/*"] }, (tabs) => {
-    tabs.forEach(tab => {
-      chrome.tabs.sendMessage(tab.id, {
-        action: "updateAutoRecordPermission",
-        enabled: enabled
-      });
-    });
-  });
-}
-
-function startRecordingForTab(tabId) {
-  if (currentRecordingTab) return;
-
-  chrome.tabs.create({ url: chrome.runtime.getURL("recorder.html"), active: false }, (recorderTab) => {
-    const attemptStart = (retry = 0) => {
-      chrome.tabs.sendMessage(recorderTab.id, { action: "startRecording", tabId, autoRecord: true }, (resp) => {
-        if (chrome.runtime.lastError) {
-          if (retry < 2) setTimeout(() => attemptStart(retry + 1), 1000);
-          else console.error("❌ Failed to start recording");
-        } else currentRecordingTab = tabId;
-      });
-    };
-    setTimeout(() => attemptStart(), 1500);
-  });
-}
-
-function stopAllRecordings() {
-  chrome.tabs.query({ url: chrome.runtime.getURL("recorder.html") }, (tabs) => {
-    if (tabs.length > 0) {
-      tabs.forEach(tab => {
-        // 🆕 SEND STOP MESSAGE TO RECORDER TAB
-        chrome.tabs.sendMessage(tab.id, { action: "stopRecording" }, (response) => {
-          if (chrome.runtime.lastError) {
-            console.log("⚠️ Recorder tab not responding, might be already closed");
-          } else {
-            console.log("✅ Stop message sent to recorder tab");
-          }
-        });
-      });
-    } else {
-      console.log("⚠️ No recorder tabs found");
-    }
-  });
-  currentRecordingTab = null;
-}
-
-// Stop recording if source tab closes
-chrome.tabs.onRemoved.addListener((tabId) => {
-  if (tabId === currentRecordingTab) stopAllRecordings();
-});
-
-// Keep service worker alive
-setInterval(() => chrome.runtime.getPlatformInfo(() => {}), 20000);
-
-WORKING CODE - 1*/
-
-/*
-/// Background script - Message routing and tab detection
-let userPermissionGranted = false;
-let currentRecordingTab = null;
-
-// Load saved permission state
-chrome.storage.local.get(['autoRecordPermission'], (result) => {
-  userPermissionGranted = result.autoRecordPermission || false;
-  console.log("🔐 Auto record permission:", userPermissionGranted);
-});
-
-// Listen for tab updates to detect Meet pages
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === "complete" && isMeetTab(tab.url)) {
-    console.log("✅ Meet tab detected:", tabId, tab.url);
+      // Debug endpoint to check background state
+      else if (message.action === "getBackgroundState") {
+        console.log("🔍 Background state requested:");
+        console.log("- currentRecordingTab:", currentRecordingTab);
+        console.log("- isAutoRecording:", isAutoRecording);
+        console.log("- userPermissionGranted:", userPermissionGranted);
     
-    // Check if user has given permission for auto recording
-    chrome.storage.local.get(['autoRecordPermission'], (result) => {
-      if (result.autoRecordPermission) {
-        console.log("🎬 Auto recording permission granted - waiting for meeting join...");
+        sendResponse({
+          currentRecordingTab: currentRecordingTab,
+          isAutoRecording: isAutoRecording,
+          userPermissionGranted: userPermissionGranted
+        });
+      }
+
+      // Handle refreshExtensionState message
+      else if (message.action === "refreshExtensionState") {
+        console.log("🔄 Refreshing extension state in background");
+    
+        // Close recorder tabs first
+        await closeAllRecorderTabs();
+    
+        currentRecordingTab = null;
+        isAutoRecording = false;
+    
+        if (autoStartTimeout) {
+          clearTimeout(autoStartTimeout);
+          autoStartTimeout = null;
+        }
+    
+        sendResponse({ success: true });
+      }
+      
+      // Auto start recording with proper state management
+      else if (message.action === "autoStartRecording") {
+        console.log("🎬 Auto-start recording requested from tab:", sender.tab?.id);
+  
+        // Clear any pending auto-start
+        if (autoStartTimeout) {
+          clearTimeout(autoStartTimeout);
+          autoStartTimeout = null;
+        }
+  
+        const handleAutoStart = async () => {
+          try {
+            if (!sender.tab?.id) {
+              console.log("❌ No sender tab ID");
+              sendResponse({ success: false, reason: "no_tab_id" });
+              return;
+            }
+      
+            if (!userPermissionGranted) {
+              console.log("❌ Auto recording denied - no permission");
+              sendResponse({ success: false, reason: "no_permission" });
+              return;
+            }
+      
+            // Aggressive recovery: Always reset states before auto-start
+            console.log("🔄 Resetting states before auto-start...");
+            currentRecordingTab = null;
+            isAutoRecording = false;
+      
+            // Clear storage to ensure clean state
+            await chrome.storage.local.set({ 
+              isRecording: false,
+              recordingStoppedByTabClose: true 
+            });
+      
+            console.log("✅ Starting auto recording for tab:", sender.tab.id);
+            currentRecordingTab = sender.tab.id;
+            isAutoRecording = true;
+      
+            // Start recording with 2 second delay
+            setTimeout(() => {
+              startRecordingForTab(sender.tab.id);
+            }, 2000);
+      
+            sendResponse({ success: true });
+      
+          } catch (error) {
+            console.error("❌ Error in autoStartRecording:", error);
+            currentRecordingTab = null;
+            isAutoRecording = false;
+            sendResponse({ success: false, error: error.message });
+          }
+        };
+  
+        // Start immediately (no additional delay)
+        handleAutoStart();
+        return true;
+      }
+
+      else if (message.action === "autoStopRecording") {
+        console.log("🛑 Auto stop recording requested");
+        stopAllRecordings();
+        sendResponse({ success: true });
+      }
+
+      // Route recording completion to Meet tab
+      else if (message.action === "recordingCompleted") {
+        currentRecordingTab = null;
+        isAutoRecording = false;
         
-        // Don't start recording immediately, wait for leave button to appear
-        // The content script will handle this
+        chrome.tabs.query({ url: "https://*.meet.google.com/*" }, (tabs) => {
+          tabs.forEach(tab => {
+            chrome.tabs.sendMessage(tab.id, { action: "recordingCompleted" });
+          });
+        });
+
+        setTimeout(() => {
+          closeAllRecorderTabs();
+        }, 1000);
+
+        sendResponse({ success: true });
+      }
+      
+      else if (message.action === "checkMeetingStatus") {
+        chrome.tabs.sendMessage(sender.tab.id, { action: "checkMeetingStatus" }, sendResponse);
+      }
+
+      // Close recorder tab for auto mode
+      else if (message.action === "closeRecorderTab") {
+        console.log("🛑 Closing recorder tab for auto mode");
+        closeAllRecorderTabs();
+        sendResponse({ success: true });
+      }
+
+      // Stop recording when meeting ends
+      else if (message.action === "stopRecordingOnMeetingEnd") {
+        console.log("🛑 Meeting ended - AUTO-DOWNLOADING recording");
+        await stopRecordingOnMeetingEnd();
+        sendResponse({ success: true });
+      }
+
+      // Route status messages to active Meet tab
+      else if (message.action === "showMeetStatus" || message.action === "updateMeetTimer") {
+        chrome.tabs.query({ url: "https://*.meet.google.com/*" }, (tabs) => {
+          tabs.forEach(tab => {
+            if (tab.id !== sender.tab?.id) {
+                chrome.tabs.sendMessage(tab.id, message);
+            }
+          });
+        });
+        sendResponse({ success: true });
+      }
+
+      else if (message.action === "healthCheck") {
+        console.log("❤️ Background health check received");
+        sendResponse({ status: "healthy", service: "background" });
+      }
+
+      else if (message.action === "cleanupFailedRecorders") {
+        console.log("🧹 Manual cleanup of failed recorders requested");
+        detectAndCleanupFailedRecorderTabs().then(() => {
+          sendResponse({ success: true });
+        });
+        return true;
+      }
+      
+      else {
+        sendResponse({ success: false, reason: "unknown_action" });
+      }
+    } catch (error) {
+      console.error("❌ Error handling message:", error);
+      sendResponse({ success: false, error: error.message });
+    }
+  };
+
+  handleAsync();
+  return true; 
+});
+
+// Separate function for meeting end handling
+async function stopRecordingOnMeetingEnd() {
+  return new Promise((resolve) => {
+    chrome.tabs.query({ url: chrome.runtime.getURL("recorder.html") }, (tabs) => {
+      if (tabs.length > 0) {
+        let completed = 0;
+        tabs.forEach(tab => {
+          chrome.tabs.sendMessage(tab.id, { 
+            action: "stopRecording",
+            forceAutoDownload: true 
+          }, (response) => {
+            if (chrome.runtime.lastError) {
+              console.log("⚠️ Recorder tab not responding");
+            } else {
+              console.log("✅ Auto-download command sent");
+            }
+            completed++;
+            if (completed === tabs.length) {
+              currentRecordingTab = null;
+              isAutoRecording = false;
+              resolve();
+            }
+          });
+        });
+      } else {
+        console.log("⚠️ No recorder tabs found");
+        currentRecordingTab = null;
+        isAutoRecording = false;
+        resolve();
       }
     });
-  }
-});
-
-function isMeetTab(url) {
-  return url && (url.includes("meet.google.com/"));
+  });
 }
 
-// Handle permission messages
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log("📨 Background received:", message.action);
-  
-  if (message.action === "grantAutoRecordPermission") {
-    console.log("✅ User granted auto recording permission");
-    userPermissionGranted = true;
-    chrome.storage.local.set({ autoRecordPermission: true }, () => {
-      // Notify all Meet tabs about permission change
-      chrome.tabs.query({url: ["https://*.meet.google.com/*"]}, (tabs) => {
-        tabs.forEach(tab => {
-          chrome.tabs.sendMessage(tab.id, {
-            action: "updateAutoRecordPermission",
-            enabled: true
-          });
-        });
+// Close all recorder tabs
+function closeAllRecorderTabs() {
+  chrome.tabs.query({ url: chrome.runtime.getURL("recorder.html") }, (tabs) => {
+    tabs.forEach(tab => {
+      chrome.tabs.sendMessage(tab.id, { action: "stopRecording" });
+      console.log("✅ Stop message sent to recorder tab");
+    });
+  });
+  currentRecordingTab = null;
+  isAutoRecording = false;
+}
+
+// Notify all Meet tabs about permission change
+function notifyAllMeetTabs(enabled) {
+  chrome.tabs.query({ url: ["https://*.meet.google.com/*"] }, (tabs) => {
+    tabs.forEach(tab => {
+      chrome.tabs.sendMessage(tab.id, {
+        action: "updateAutoRecordPermission",
+        enabled: enabled
       });
     });
-    sendResponse({ success: true });
-  }
-  
-  if (message.action === "revokeAutoRecordPermission") {
-    console.log("❌ User revoked auto recording permission");
-    userPermissionGranted = false;
-    chrome.storage.local.set({ autoRecordPermission: false }, () => {
-      // Notify all Meet tabs about permission change
-      chrome.tabs.query({url: ["https://*.meet.google.com/*"]}, (tabs) => {
-        tabs.forEach(tab => {
-          chrome.tabs.sendMessage(tab.id, {
-            action: "updateAutoRecordPermission",
-            enabled: false
-          });
+  });
+}
+
+function detectAndCleanupFailedRecorderTabs() {
+  return new Promise((resolve) => {
+    chrome.tabs.query({ url: chrome.runtime.getURL("recorder.html") }, (tabs) => {
+      if (tabs.length === 0) {
+        console.log("✅ No recorder tabs to check");
+        resolve();
+        return;
+      }
+
+      let checkedCount = 0;
+      let failedTabs = [];
+
+      tabs.forEach(tab => {
+        // Send a health check to each recorder tab
+        chrome.tabs.sendMessage(tab.id, { action: "healthCheck" }, (response) => {
+          checkedCount++;
+          
+          if (chrome.runtime.lastError || !response) {
+            console.log(`❌ Recorder tab ${tab.id} is unresponsive - marking for closure`);
+            failedTabs.push(tab.id);
+          } else if (response.status === "healthy") {
+            console.log(`✅ Recorder tab ${tab.id} is healthy`);
+          }
+
+          // When all tabs are checked, close the failed ones
+          if (checkedCount === tabs.length) {
+            if (failedTabs.length > 0) {
+              console.log(`🛑 Closing ${failedTabs.length} failed recorder tabs`);
+              
+              failedTabs.forEach(tabId => {
+                chrome.tabs.remove(tabId, () => {
+                  console.log(`✅ Closed failed recorder tab: ${tabId}`);
+                });
+              });
+
+              // Refresh meeting state after closing failed tabs
+              refreshMeetingState();
+            } else {
+              console.log("✅ All recorder tabs are healthy");
+            }
+            resolve();
+          }
         });
       });
+
+      // Fallback: If no responses within 3 seconds, assume all are failed
+      setTimeout(() => {
+        if (checkedCount < tabs.length) {
+          console.log("⏰ Health check timeout - assuming unresponsive tabs are failed");
+          
+          tabs.forEach(tab => {
+            if (!failedTabs.includes(tab.id)) {
+              failedTabs.push(tab.id);
+            }
+          });
+
+          if (failedTabs.length > 0) {
+            failedTabs.forEach(tabId => {
+              chrome.tabs.remove(tabId, () => {
+                console.log(`✅ Closed unresponsive recorder tab: ${tabId}`);
+              });
+            });
+            refreshMeetingState();
+          }
+          resolve();
+        }
+      }, 3000);
     });
-    sendResponse({ success: true });
-  }
+  });
+}
+
+// Function to refresh meeting state globally
+function refreshMeetingState() {
+  console.log("🔄 Refreshing global meeting state after cleanup");
   
-  if (message.action === "getAutoRecordPermission") {
-    sendResponse({ permission: userPermissionGranted });
-  }
-
-  if (message.action === "autoStartRecording") {
-    console.log("🎬 Auto starting recording for tab:", sender.tab.id);
-    startRecordingForTab(sender.tab.id);
-    sendResponse({ success: true });
-  }
-
-  if (message.action === "autoStopRecording") {
-    console.log("🛑 Auto stopping recording");
-    stopAllRecordings();
-    sendResponse({ success: true });
-  }
-
-  if (message.action === "checkMeetingStatus") {
-    chrome.tabs.sendMessage(sender.tab.id, { action: "checkMeetingStatus" }, (response) => {
-      sendResponse(response);
-    });
-    return true;
-  }
-
-  if (message.action === "recordingStarted") {
-    console.log("✅ Recording started successfully");
-    currentRecordingTab = sender.tab.id;
-    sendResponse({ success: true });
-  }
-
-  if (message.action === "recordingStopped") {
-    console.log("✅ Recording stopped successfully");
-    currentRecordingTab = null;
-    sendResponse({ success: true });
-  }
+  // Reset background states
+  currentRecordingTab = null;
+  isAutoRecording = false;
   
-  return true;
-});
-
-function startRecordingForTab(tabId) {
-  if (currentRecordingTab) {
-    console.log("⚠️ Already recording in tab:", currentRecordingTab);
-    return;
+  if (autoStartTimeout) {
+    clearTimeout(autoStartTimeout);
+    autoStartTimeout = null;
   }
 
-  console.log("🎬 Starting recording for Meet tab:", tabId);
-  
-  // Create a new tab for recording
-  chrome.tabs.create({
-    url: chrome.runtime.getURL("recorder.html"),
-    active: false
-  }, (recorderTab) => {
-    console.log("✅ Recorder tab opened:", recorderTab.id);
-    
-    // Send tab ID to recorder after a delay
-    const startRecording = (retryCount = 0) => {
-      chrome.tabs.sendMessage(recorderTab.id, { 
-        action: "startRecording", 
-        tabId: tabId,
-        autoRecord: true
+  // Clear storage
+  chrome.storage.local.set({ 
+    isRecording: false,
+    recordingStoppedByTabClose: true 
+  });
+
+  // Notify all Meet tabs to reset their states
+  chrome.tabs.query({ url: "https://*.meet.google.com/*" }, (tabs) => {
+    tabs.forEach(tab => {
+      chrome.tabs.sendMessage(tab.id, { 
+        action: "forceResetAndRetry" 
       }, (response) => {
         if (chrome.runtime.lastError) {
-          console.log(`❌ Recorder tab not ready (attempt ${retryCount + 1}/3), retrying...`);
-          if (retryCount < 2) {
-            setTimeout(() => startRecording(retryCount + 1), 1000);
-          } else {
-            console.error("❌ Failed to start recording after 3 attempts");
-          }
+          console.log(`⚠️ Could not notify Meet tab ${tab.id}:`, chrome.runtime.lastError.message);
         } else {
-          console.log("✅ Recording started successfully");
-          currentRecordingTab = tabId;
+          console.log(`✅ Notified Meet tab ${tab.id} to reset state`);
         }
       });
-    };
+    });
+  });
+
+  console.log("✅ Global meeting state refreshed");
+}
+
+// Improved recording start with activeTab validation
+function startRecordingForTab(tabId) {
+  console.log("🎬 Creating recorder tab for auto recording...");
+  
+  // Validate the tab exists and is a Meet tab
+  chrome.tabs.get(tabId, (tab) => {
+    if (chrome.runtime.lastError || !tab) {
+      console.error("❌ Source tab not found or inaccessible:", chrome.runtime.lastError);
+      currentRecordingTab = null;
+      isAutoRecording = false;
+      return;
+    }
     
-    setTimeout(() => startRecording(), 1500);
+    if (!isMeetTab(tab.url)) {
+      console.error("❌ Source tab is not a Google Meet tab:", tab.url);
+      currentRecordingTab = null;
+      isAutoRecording = false;
+      return;
+    }
+    
+    chrome.tabs.create({ url: chrome.runtime.getURL("recorder.html"), active: false }, (recorderTab) => {
+      console.log("✅ Recorder tab created:", recorderTab.id);
+      
+      const attemptStart = (retry = 0) => {
+        console.log(`🔄 Attempting to start recording (attempt ${retry + 1})...`);
+        
+        chrome.tabs.sendMessage(recorderTab.id, { 
+          action: "startRecording", 
+          tabId: tabId, 
+          autoRecord: true 
+        }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.log(`⚠️ Recorder not ready: ${chrome.runtime.lastError.message}`);
+            if (retry < 3) {
+              console.log(`🔄 Retrying in 1.5 seconds... (${retry + 1}/3)`);
+              setTimeout(() => attemptStart(retry + 1), 1500);
+            } else {
+              console.error("❌ Failed to start recording after 3 attempts");
+              currentRecordingTab = null;
+              isAutoRecording = false;
+            }
+          } else {            
+            currentRecordingTab = tabId;
+            isAutoRecording = true;
+          }
+        });
+      };
+      
+      // Wait 2 seconds before first attempt
+      setTimeout(() => attemptStart(), 2000);
+    });
   });
 }
 
 function stopAllRecordings() {
-  console.log("🛑 Stopping all recordings");
-  
-  // Find and stop all recorder tabs
   chrome.tabs.query({ url: chrome.runtime.getURL("recorder.html") }, (tabs) => {
     if (tabs.length > 0) {
       tabs.forEach(tab => {
-        chrome.tabs.sendMessage(tab.id, { action: "stopRecording" });
+        chrome.tabs.sendMessage(tab.id, { action: "stopRecording" }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.log("⚠️ Recorder tab not responding");
+          } else {
+            console.log("✅ Stop message sent to recorder tab");
+          }
+        });
       });
     } else {
       console.log("⚠️ No recorder tabs found");
     }
   });
-  
   currentRecordingTab = null;
+  isAutoRecording = false;
 }
 
-// Monitor tab closures
+// Stop recording if source tab closes
 chrome.tabs.onRemoved.addListener((tabId) => {
   if (tabId === currentRecordingTab) {
-    console.log("🛑 Recording source tab closed - stopping recording");
+    console.log("❌ Source tab closed - stopping recording");
     stopAllRecordings();
   }
 });
@@ -502,207 +494,3 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 setInterval(() => {
   chrome.runtime.getPlatformInfo(() => {});
 }, 20000);
-
-*/
-
-/*
-let userPermissionGranted = false;
-let currentRecordingTab = null;
-
-// Load saved permission state
-chrome.storage.local.get(['autoRecordPermission'], (result) => {
-  userPermissionGranted = result.autoRecordPermission || false;
-  console.log("🔐 Auto record permission:", userPermissionGranted);
-});
-
-// Listen for Meet tab updates
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === "complete" && isMeetTab(tab.url)) {
-    console.log("✅ Meet tab detected:", tabId, tab.url);
-  }
-});
-
-function isMeetTab(url) {
-  return url && (url.includes("meet.google.com/"));
-}
-
-// Listen for messages from popup/content
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log("📨 Background received:", message.action);
-  
-  if (message.action === "grantAutoRecordPermission") {
-    userPermissionGranted = true;
-    chrome.storage.local.set({ autoRecordPermission: true }, () => notifyAllMeetTabs(true));
-    sendResponse({ success: true });
-  }
-  
-  if (message.action === "revokeAutoRecordPermission") {
-    userPermissionGranted = false;
-    chrome.storage.local.set({ autoRecordPermission: false }, () => notifyAllMeetTabs(false));
-    sendResponse({ success: true });
-  }
-  
-  if (message.action === "autoStartRecording") {
-    if (userPermissionGranted) startRecordingForTab(sender.tab.id);
-    sendResponse({ success: true });
-  }
-
-  if (message.action === "autoStopRecording") {
-    stopAllRecordings();
-    sendResponse({ success: true });
-  }
-  
-  if (message.action === "checkMeetingStatus") {
-    chrome.tabs.sendMessage(sender.tab.id, { action: "checkMeetingStatus" }, sendResponse);
-    return true;
-  }
-
-  return true;
-});
-
-// Notify all Meet tabs about permission change
-function notifyAllMeetTabs(enabled) {
-  chrome.tabs.query({ url: ["https://*.meet.google.com/*"] }, (tabs) => {
-    tabs.forEach(tab => {
-      chrome.tabs.sendMessage(tab.id, {
-        action: "updateAutoRecordPermission",
-        enabled: enabled
-      });
-    });
-  });
-}
-
-function startRecordingForTab(tabId) {
-  if (currentRecordingTab) return;
-
-  chrome.tabs.create({ url: chrome.runtime.getURL("recorder.html"), active: false }, (recorderTab) => {
-    const attemptStart = (retry = 0) => {
-      chrome.tabs.sendMessage(recorderTab.id, { action: "startRecording", tabId, autoRecord: true }, (resp) => {
-        if (chrome.runtime.lastError) {
-          if (retry < 2) setTimeout(() => attemptStart(retry + 1), 1000);
-          else console.error("❌ Failed to start recording");
-        } else currentRecordingTab = tabId;
-      });
-    };
-    setTimeout(() => attemptStart(), 1500);
-  });
-}
-
-function stopAllRecordings() {
-  chrome.tabs.query({ url: chrome.runtime.getURL("recorder.html") }, (tabs) => {
-    tabs.forEach(tab => chrome.tabs.sendMessage(tab.id, { action: "stopRecording" }));
-  });
-  currentRecordingTab = null;
-}
-
-// Stop recording if source tab closes
-chrome.tabs.onRemoved.addListener((tabId) => {
-  if (tabId === currentRecordingTab) stopAllRecordings();
-});
-
-// Keep service worker alive
-setInterval(() => chrome.runtime.getPlatformInfo(() => {}), 20000);
-*/
-
-/*
-let userPermissionGranted = false;
-let currentRecordingTab = null;
-
-// Load saved permission state
-chrome.storage.local.get(['autoRecordPermission'], (result) => {
-  userPermissionGranted = result.autoRecordPermission || false;
-  console.log("🔐 Auto record permission:", userPermissionGranted);
-});
-
-// Listen for Meet tab updates
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === "complete" && isMeetTab(tab.url)) {
-    console.log("✅ Meet tab detected:", tabId, tab.url);
-  }
-});
-
-function isMeetTab(url) {
-  return url && (url.includes("meet.google.com/"));
-}
-
-// Listen for messages from popup/content
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log("📨 Background received:", message.action);
-  
-  if (message.action === "grantAutoRecordPermission") {
-    userPermissionGranted = true;
-    chrome.storage.local.set({ autoRecordPermission: true }, () => notifyAllMeetTabs(true));
-    sendResponse({ success: true });
-  }
-  
-  if (message.action === "revokeAutoRecordPermission") {
-    userPermissionGranted = false;
-    chrome.storage.local.set({ autoRecordPermission: false }, () => notifyAllMeetTabs(false));
-    sendResponse({ success: true });
-  }
-  
-  if (message.action === "autoStartRecording") {
-    if (userPermissionGranted) startRecordingForTab(sender.tab.id);
-    sendResponse({ success: true });
-  }
-
-  if (message.action === "autoStopRecording") {
-    stopAllRecordings();
-    sendResponse({ success: true });
-  }
-  
-  if (message.action === "checkMeetingStatus") {
-    chrome.tabs.sendMessage(sender.tab.id, { action: "checkMeetingStatus" }, sendResponse);
-    return true;
-  }
-
-  return true;
-});
-
-// Notify all Meet tabs about permission change
-function notifyAllMeetTabs(enabled) {
-  chrome.tabs.query({ url: ["https://*.meet.google.com/*"] }, (tabs) => {
-    tabs.forEach(tab => {
-      chrome.tabs.sendMessage(tab.id, {
-        action: "updateAutoRecordPermission",
-        enabled: enabled
-      });
-    });
-  });
-}
-
-function startRecordingForTab(tabId) {
-  if (currentRecordingTab) return;
-
-  chrome.tabs.create({ url: chrome.runtime.getURL("recorder.html"), active: false }, (recorderTab) => {
-    const attemptStart = (retry = 0) => {
-      chrome.tabs.sendMessage(recorderTab.id, { action: "startRecording", tabId, autoRecord: true }, (resp) => {
-        if (chrome.runtime.lastError) {
-          if (retry < 2) setTimeout(() => attemptStart(retry + 1), 1000);
-          else console.error("❌ Failed to start recording");
-        } else currentRecordingTab = tabId;
-      });
-    };
-    setTimeout(() => attemptStart(), 1500);
-  });
-}
-
-function stopAllRecordings() {
-  chrome.tabs.query({ url: chrome.runtime.getURL("recorder.html") }, (tabs) => {
-    tabs.forEach(tab => chrome.tabs.sendMessage(tab.id, { action: "stopRecording" }));
-  });
-  currentRecordingTab = null;
-}
-
-// Stop recording if source tab closes
-chrome.tabs.onRemoved.addListener((tabId) => {
-  if (tabId === currentRecordingTab) stopAllRecordings();
-});
-
-// Keep service worker alive
-setInterval(() => chrome.runtime.getPlatformInfo(() => {}), 20000);
-
-*/
-
-
-

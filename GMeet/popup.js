@@ -1,4 +1,4 @@
-// WORKING CODE 
+// POPUP - RESOLVED ASYNC ERRORS
 let activeTabId;
 let isRecording = false;
 let autoRecordEnabled = false;
@@ -8,15 +8,21 @@ document.addEventListener("DOMContentLoaded", async () => {
   console.log("🔍 Popup opened - checking tab...");
 
   try {
+    await checkForFailedRecorders();
+    
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
     if (tab && tab.url && isMeetTab(tab.url)) {
       activeTabId = tab.id;
       console.log("✅ Google Meet tab detected:", activeTabId);
 
-      // Check meeting status
+      // Proper async message handling
       chrome.tabs.sendMessage(activeTabId, { action: "checkMeetingStatus" }, (response) => {
-        if (response) updateMeetingStatusUI(response.isInMeeting, response.recording);
+        if (chrome.runtime.lastError) {
+          console.log("⚠️ Could not check meeting status:", chrome.runtime.lastError.message);
+        } else if (response) {
+          updateMeetingStatusUI(response.isInMeeting, response.recording);
+        }
       });
     }
 
@@ -24,6 +30,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     await checkRecordingStatus();
     await checkAutoRecordPermission();
 
+    await verifyRecorderTabStatus();
+
+    startUISyncChecker();
+    
   } catch (error) {
     console.error("❌ Error checking tab:", error);
   }
@@ -33,22 +43,22 @@ function isMeetTab(url) {
   return url && url.includes("meet.google.com");
 }
 
-// ------------------ UI UPDATE ------------------
+// UI UPDATE
 function updateMeetingStatusUI(isInMeeting, isRecordingFlag) {
   const statusElement = document.getElementById("status");
 
   if (isInMeeting) {
     statusElement.textContent = isRecordingFlag ? "🟢 In Meet - Recording..." : "🟡 In Meet - Ready to Record";
-    statusElement.style.color = isRecordingFlag ? "#4CAF50" : "#FF9800";
+    statusElement.style.color = isRecordingFlag ? "#f3f0ecff" : "#f3f0ecff";
   } else {
     statusElement.textContent = "⚪ Not in Meeting";
-    statusElement.style.color = "#9E9E9E";
+    statusElement.style.color = "#f3f0ecff";
   }
 }
 
 function updateUIForRecording(recordingTime) {
   document.getElementById("startBtn").disabled = true;
-  document.getElementById("stopBtn").disabled = autoRecordEnabled; // Disabled in auto mode
+  document.getElementById("stopBtn").disabled = autoRecordEnabled;
   document.getElementById("timer").textContent = recordingTime;
   document.getElementById("status").textContent = "🟢 Recording in background...";
   document.getElementById("startBtn").textContent = "Recording...";
@@ -72,7 +82,18 @@ function updateUIForReady() {
   document.getElementById("stopBtn").style.backgroundColor = "#666";
 }
 
-// ------------------ AUTO RECORD PERMISSION ------------------
+async function checkForFailedRecorders() {
+  try {
+    const response = await chrome.runtime.sendMessage({ action: "cleanupFailedRecorders" });
+    if (response?.success) {
+      console.log("✅ Manual cleanup completed");
+    }
+  } catch (error) {
+    console.log("✅ No failed recorders found");
+  }
+}
+
+// AUTO RECORD PERMISSION
 async function checkAutoRecordPermission() {
   return new Promise((resolve) => {
     chrome.storage.local.get(['autoRecordPermission'], (result) => {
@@ -80,68 +101,151 @@ async function checkAutoRecordPermission() {
       
       console.log("🔄 DEBUG - Storage value:", result.autoRecordPermission);
       console.log("🔄 DEBUG - autoRecordEnabled:", autoRecordEnabled);
-      
-      const toggle = document.getElementById('autoRecordToggle');
-      const label = document.getElementById('toggleLabel');
-      
-      console.log("🔄 DEBUG - Toggle element:", toggle);
-      console.log("🔄 DEBUG - Label element:", label);
-      
-      if (toggle) {
-        toggle.checked = autoRecordEnabled;
-        console.log("🔄 DEBUG - Toggle checked set to:", toggle.checked);
-      }
-      if (label) {
-        label.textContent = autoRecordEnabled ? 'ON' : 'OFF';
-        console.log("🔄 DEBUG - Label set to:", label.textContent);
-      }
 
+      updateToggleUI();
       resolve(autoRecordEnabled);
     });
   });
 }
 
+function updateToggleUI() {
+  const toggle = document.getElementById('autoRecordToggle');
+  const label = document.getElementById('toggleLabel');
+  const permissionText = document.getElementById('permissionText');
+  
+  console.log("🔄 DEBUG - Updating toggle UI to:", autoRecordEnabled);
+  
+  if (toggle) {
+    toggle.checked = autoRecordEnabled;
+  }
+  if (label) {
+    label.textContent = autoRecordEnabled ? 'ON' : 'OFF';
+    label.style.color = autoRecordEnabled ? '#edf0edff' : '#edf0edff';
+    label.style.fontWeight = 'bold';
+  }
+  if (permissionText) {
+    permissionText.textContent = autoRecordEnabled 
+      ? 'Auto recording enabled - meetings will be recorded automatically' 
+      : 'Manually record when joining meetings';
+    permissionText.style.color = autoRecordEnabled ? '#edf0edff' : '#edf0edff';
+  }
+}
+
+// Proper async storage change handling
+chrome.storage.onChanged.addListener((changes, namespace) => {
+  if (namespace === 'local' && changes.autoRecordPermission) {
+    console.log("🔄 Storage change detected for autoRecordPermission:", changes.autoRecordPermission.newValue);
+    autoRecordEnabled = changes.autoRecordPermission.newValue;
+    updateToggleUI();
+    
+    const stopBtn = document.getElementById('stopBtn');
+    if (stopBtn && isRecording) {
+      stopBtn.disabled = autoRecordEnabled;
+      stopBtn.style.backgroundColor = autoRecordEnabled ? "#666" : "#f44336";
+    }
+  }
+});
+
+// Function to close all recorder tabs
+async function closeAllRecorderTabs() {
+    return new Promise((resolve) => {
+        chrome.tabs.query({ url: chrome.runtime.getURL("recorder.html") }, (tabs) => {
+            if (tabs.length === 0) {
+                console.log("✅ No recorder tabs to close");
+                resolve();
+                return;
+            }
+            
+            let closedCount = 0;
+            tabs.forEach(tab => {
+                chrome.tabs.remove(tab.id, () => {
+                    closedCount++;
+                    console.log(`✅ Closed recorder tab: ${tab.id}`);
+                    
+                    if (closedCount === tabs.length) {
+                        console.log("✅ All recorder tabs closed");
+                        resolve();
+                    }
+                });
+            });
+        });
+    });
+}
+
+
+
+// Async toggle handler
 document.getElementById('autoRecordToggle').addEventListener('change', async (e) => {
   const enabled = e.target.checked;
 
   if (enabled) {
-    const confirmed = confirm("Enable Auto Recording?\nAutomatically start recording when you join Meet and stop when you leave.");
+    const confirmed = confirm("Enable Auto Recording?\n\nAutomatically start recording when you join Meet and stop when you leave.\n\nRecording will start 3 seconds after joining a meeting.");
     if (confirmed) {
-      await chrome.runtime.sendMessage({ action: "grantAutoRecordPermission" });
-      autoRecordEnabled = true;
-    } else { e.target.checked = false; return; }
+      try {
+        await chrome.runtime.sendMessage({ action: "grantAutoRecordPermission" });
+        autoRecordEnabled = true;
+      } catch (error) {
+        console.error("❌ Error granting permission:", error);
+        e.target.checked = false;
+        updateToggleUI();
+        return;
+      }
+    } else { 
+      e.target.checked = false; 
+      updateToggleUI();
+      return; 
+    }
     
     document.getElementById('stopBtn').disabled = true;
     document.getElementById('stopBtn').style.backgroundColor = "#666";
 
   } else {
-    await chrome.runtime.sendMessage({ action: "revokeAutoRecordPermission" });
-    autoRecordEnabled = false;
+    try {
+      await chrome.runtime.sendMessage({ action: "revokeAutoRecordPermission" });
+      autoRecordEnabled = false;
+    } catch (error) {
+      console.error("❌ Error revoking permission:", error);
+      e.target.checked = true;
+      updateToggleUI();
+      return;
+    }
 
     document.getElementById('stopBtn').disabled = false;
     document.getElementById('stopBtn').style.backgroundColor = "#f44336";
   }
+  
+  updateToggleUI();
   updateUIForReady();
 });
 
-// ------------------ RECORDING ------------------
+// Recording status
 async function checkRecordingStatus() {
   const result = await chrome.storage.local.get(['isRecording', 'recordingTime']);
   isRecording = result.isRecording || false;
 
-  // 🆕 CHECK IF RECORDING WAS STOPPED BY TAB CLOSURE
   if (result.recordingStoppedByTabClose) {
     console.log("🔄 Recording was stopped by tab closure - resetting UI");
     isRecording = false;
-    // Clean up the flag
     chrome.storage.local.remove(['recordingStoppedByTabClose']);
   }
 
-  if (isRecording) updateUIForRecording(result.recordingTime || "00:00");
-  else updateUIForReady();
+  if (isRecording) {
+    const tabs = await chrome.tabs.query({ url: chrome.runtime.getURL("recorder.html") });
+    if (tabs.length === 0) {
+      console.log("🔄 No recorder tabs found but storage says recording - resetting UI");
+      isRecording = false;
+      chrome.storage.local.set({ isRecording: false });
+      updateUIForReady();
+    } else {
+      updateUIForRecording(result.recordingTime || "00:00");
+      await verifyRecorderTabStatus();
+    }
+  } else {
+    updateUIForReady();
+  }
 }
 
-// Start Recording manually
+// Start Recording with proper error handling
 document.getElementById("startBtn").addEventListener("click", async () => {
   if (!activeTabId) return alert("❌ Please open Google Meet first");
 
@@ -149,727 +253,178 @@ document.getElementById("startBtn").addEventListener("click", async () => {
   document.getElementById("startBtn").textContent = "Starting...";
   document.getElementById("status").textContent = "🟡 Starting recording...";
 
-  chrome.tabs.create({ url: chrome.runtime.getURL("recorder.html"), active: false }, (tab) => {
-    setTimeout(() => {
-      chrome.tabs.sendMessage(tab.id, { action: "startRecording", tabId: activeTabId });
-    }, 1000);
-  });
+  try {
+    // Use proper async messaging
+    chrome.tabs.sendMessage(activeTabId, { action: "manualRecordingStarted" }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.log("⚠️ Could not notify content script:", chrome.runtime.lastError.message);
+      }
+    });
+
+    chrome.tabs.create({ url: chrome.runtime.getURL("recorder.html"), active: false }, (tab) => {
+      setTimeout(() => {
+        chrome.tabs.sendMessage(tab.id, { action: "startRecording", tabId: activeTabId }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.error("❌ Failed to start recording:", chrome.runtime.lastError.message);
+            document.getElementById("status").textContent = "❌ Failed to start recording";
+            updateUIForReady();
+          }
+        });
+      }, 1000);
+    });
+  } catch (error) {
+    console.error("❌ Error starting recording:", error);
+    document.getElementById("status").textContent = "❌ Error starting recording";
+    updateUIForReady();
+  }
 });
 
-// Stop Recording manually
+// Stop Recording with proper error handling
 document.getElementById("stopBtn").addEventListener("click", async () => {
+  if (activeTabId) {
+    try {
+      chrome.tabs.sendMessage(activeTabId, { action: "manualRecordingStopped" }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.log("⚠️ Could not notify content script:", chrome.runtime.lastError.message);
+        }
+      });
+    } catch (error) {
+      console.log("⚠️ Error notifying content script:", error);
+    }
+  }
   stopRecordingAndDownload();
 });
 
-// ------------------ HELPER: Stop + Download ------------------
+// HELPER: Stop + Download
 async function stopRecordingAndDownload() {
   document.getElementById("stopBtn").disabled = true;
   document.getElementById("stopBtn").textContent = "Stopping...";
   document.getElementById("status").textContent = "🟡 Stopping recording...";
 
-  const tabs = await chrome.tabs.query({ url: chrome.runtime.getURL("recorder.html") });
-  if (tabs.length > 0) {
-    chrome.tabs.sendMessage(tabs[0].id, { action: "stopRecording" });
-  } else {
-    // 🆕 ENSURE UI RESETS EVEN IF RECORDER TAB NOT FOUND
+  try {
+    const tabs = await chrome.tabs.query({ url: chrome.runtime.getURL("recorder.html") });
+    if (tabs.length > 0) {
+      chrome.tabs.sendMessage(tabs[0].id, { action: "stopRecording" }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.log("⚠️ Recorder tab not responding:", chrome.runtime.lastError.message);
+        }
+      });
+    } else {
+      await chrome.storage.local.remove(['isRecording', 'recordingTime','recordingStoppedByTabClose']);
+      isRecording = false;
+      updateUIForReady();
+    }
+  } catch (error) {
+    console.error("❌ Error stopping recording:", error);
     await chrome.storage.local.remove(['isRecording', 'recordingTime','recordingStoppedByTabClose']);
     isRecording = false;
     updateUIForReady();
   }
 }
 
-// ------------------ LISTEN FOR MESSAGES ------------------
-chrome.runtime.onMessage.addListener((message) => {
-  if (message.action === "timerUpdate") document.getElementById("timer").textContent = message.time;
-
-  if (message.action === "recordingStarted") {
-    isRecording = true;
-    updateUIForRecording("00:00");
-  }
-
-  if (message.action === "recordingStopped") {
-    isRecording = false;
-    updateUIForReady();
-  }
-
-  if (message.action === "autoStopRecording") {
-    stopRecordingAndDownload();
-  }
-});
-
-
-// Listen for storage changes (when recorder tab closes)
-chrome.storage.onChanged.addListener((changes, namespace) => {
-  if (namespace === 'local' && changes.recordingStoppedByTabClose) {
-    if (changes.recordingStoppedByTabClose.newValue === true) {
-      console.log("🔄 Recorder tab closed - resetting UI");
-      isRecording = false;
-      updateUIForReady();
-      
-      // Clean up the flag
-      chrome.storage.local.remove(['recordingStoppedByTabClose']);
-    }
-  }
-
-  // Also reset when isRecording becomes false
-  if (namespace === 'local' && changes.isRecording) {
-    if (changes.isRecording.newValue === false) {
-      console.log("🔄 Recording stopped - resetting UI");
-      isRecording = false;
-      updateUIForReady();
-    }
-  }
-});
-
-// ------------------ POPUP TOOLTIP ------------------
-document.addEventListener('DOMContentLoaded', () => {
-  const toggleContainer = document.querySelector('.permission-toggle');
-  toggleContainer.title = "Automatically start/stop recording when joining/leaving Google Meet calls";
-  document.getElementById('startBtn').title = "Manually start recording current Meet tab";
-  document.getElementById('stopBtn').title = "Stop recording and download the video";
-});
-
-// ------------------ AUTO STOP DETECTION ------------------
-chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-  if (tabId === activeTabId && changeInfo.status === "complete" && autoRecordEnabled && isRecording) {
-    chrome.scripting.executeScript({
-      target: { tabId: activeTabId },
-      files: ["content.js"]
-    });
-  }
-});
-
-
-
-/*
-let activeTabId;
-let isRecording = false;
-let autoRecordEnabled = false;
-
-// Check current tab on popup open
-document.addEventListener("DOMContentLoaded", async () => {
-  console.log("🔍 Popup opened - checking tab...");
-
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
-    if (tab && tab.url && isMeetTab(tab.url)) {
-      activeTabId = tab.id;
-      console.log("✅ Google Meet tab detected:", activeTabId);
-
-      // Check meeting status
-      chrome.tabs.sendMessage(activeTabId, { action: "checkMeetingStatus" }, (response) => {
-        if (response) updateMeetingStatusUI(response.isInMeeting, response.recording);
-      });
-    }
-
-    // Check current recording status and permission
-    await checkRecordingStatus();
-    await checkAutoRecordPermission();
-
-  } catch (error) {
-    console.error("❌ Error checking tab:", error);
-  }
-});
-
-function isMeetTab(url) {
-  return url && url.includes("meet.google.com");
-}
-
-// ------------------ UI UPDATE ------------------
-function updateMeetingStatusUI(isInMeeting, isRecordingFlag) {
-  const statusElement = document.getElementById("status");
-
-  if (isInMeeting) {
-    statusElement.textContent = isRecordingFlag ? "🟢 In Meet - Recording..." : "🟡 In Meet - Ready to Record";
-    statusElement.style.color = isRecordingFlag ? "#4CAF50" : "#FF9800";
-  } else {
-    statusElement.textContent = "⚪ Not in Meeting";
-    statusElement.style.color = "#9E9E9E";
-  }
-}
-
-function updateUIForRecording(recordingTime) {
-  document.getElementById("startBtn").disabled = true;
-  document.getElementById("stopBtn").disabled = autoRecordEnabled; // Disabled in auto mode
-  document.getElementById("timer").textContent = recordingTime;
-  document.getElementById("status").textContent = "🟢 Recording in background...";
-  document.getElementById("startBtn").textContent = "Recording...";
-  document.getElementById("warning").style.display = "block";
-  document.getElementById("startBtn").style.backgroundColor = "#666";
-  document.getElementById("stopBtn").style.backgroundColor = autoRecordEnabled ? "#666" : "#f44336";
-}
-
-function updateUIForReady() {
-  document.getElementById("startBtn").disabled = !activeTabId;
-  document.getElementById("stopBtn").disabled = true;
-  document.getElementById("timer").textContent = "00:00";
-
-  if (activeTabId) {
-    document.getElementById("status").textContent = "✅ Ready to record";
-  } else {
-    document.getElementById("status").textContent = "❌ Please open Google Meet";
-  }
-  document.getElementById("startBtn").textContent = "Start Recording";
-  document.getElementById("warning").style.display = activeTabId ? "block" : "none";
-  document.getElementById("startBtn").style.backgroundColor = activeTabId ? "#4CAF50" : "#666";
-  document.getElementById("stopBtn").style.backgroundColor = "#666";
-}
-
-// ------------------ AUTO RECORD PERMISSION ------------------
-async function checkAutoRecordPermission() {
-  const result = await chrome.storage.local.get(['autoRecordPermission']);
-  autoRecordEnabled = result.autoRecordPermission || false;
-
-  document.getElementById('autoRecordToggle').checked = autoRecordEnabled;
-  document.getElementById('toggleLabel').textContent = autoRecordEnabled ? 'ON' : 'OFF';
-  document.getElementById('permissionText').textContent = autoRecordEnabled
-    ? 'Auto recording enabled ✅'
-    : 'Automatically record when joining meetings';
-}
-
-document.getElementById('autoRecordToggle').addEventListener('change', async (e) => {
-  const enabled = e.target.checked;
-
-  if (enabled) {
-    const confirmed = confirm("Enable Auto Recording?\nAutomatically start recording when you join Meet and stop when you leave.");
-    if (confirmed) {
-      await chrome.runtime.sendMessage({ action: "grantAutoRecordPermission" });
-      autoRecordEnabled = true;
-    } else { e.target.checked = false; return; }
-  } else {
-    await chrome.runtime.sendMessage({ action: "revokeAutoRecordPermission" });
-    autoRecordEnabled = false;
-  }
-  updateUIForReady();
-});
-
-// ------------------ RECORDING ------------------
-async function checkRecordingStatus() {
-  const result = await chrome.storage.local.get(['isRecording', 'recordingTime']);
-  isRecording = result.isRecording || false;
-
-  if (isRecording) updateUIForRecording(result.recordingTime || "00:00");
-  else updateUIForReady();
-}
-
-// Start Recording manually
-document.getElementById("startBtn").addEventListener("click", async () => {
-  if (!activeTabId) return alert("❌ Please open Google Meet first");
-
-  document.getElementById("startBtn").disabled = true;
-  document.getElementById("startBtn").textContent = "Starting...";
-  document.getElementById("status").textContent = "🟡 Starting recording...";
-
-  chrome.tabs.create({ url: chrome.runtime.getURL("recorder.html"), active: false }, (tab) => {
-    setTimeout(() => {
-      chrome.tabs.sendMessage(tab.id, { action: "startRecording", tabId: activeTabId });
-    }, 1000);
-  });
-});
-
-// Stop Recording manually
-document.getElementById("stopBtn").addEventListener("click", async () => {
-  stopRecordingAndDownload();
-});
-
-// ------------------ HELPER: Stop + Download ------------------
-async function stopRecordingAndDownload() {
-  document.getElementById("stopBtn").disabled = true;
-  document.getElementById("stopBtn").textContent = "Stopping...";
-  document.getElementById("status").textContent = "🟡 Stopping recording...";
-
-  const tabs = await chrome.tabs.query({ url: chrome.runtime.getURL("recorder.html") });
-  if (tabs.length > 0) {
-    chrome.tabs.sendMessage(tabs[0].id, { action: "stopRecording" });
-  } else {
-    await chrome.storage.local.remove(['isRecording', 'recordingTime']);
-    updateUIForReady();
-  }
-}
-
-// ------------------ LISTEN FOR MESSAGES ------------------
-chrome.runtime.onMessage.addListener((message) => {
-  if (message.action === "timerUpdate") document.getElementById("timer").textContent = message.time;
-
-  if (message.action === "recordingStarted") {
-    isRecording = true;
-    updateUIForRecording("00:00");
-  }
-
-  if (message.action === "recordingStopped") {
-    isRecording = false;
-    updateUIForReady();
-  }
-
-  if (message.action === "autoStopRecording") {
-    stopRecordingAndDownload();
-  }
-});
-
-// ------------------ POPUP TOOLTIP ------------------
-document.addEventListener('DOMContentLoaded', () => {
-  const toggleContainer = document.querySelector('.permission-toggle');
-  toggleContainer.title = "Automatically start/stop recording when joining/leaving Google Meet calls";
-
-  document.getElementById('startBtn').title = "Manually start recording current Meet tab";
-  document.getElementById('stopBtn').title = "Stop recording and download the video";
-});
-
-// ------------------ AUTO STOP DETECTION ------------------
-chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-  if (tabId === activeTabId && changeInfo.status === "complete" && autoRecordEnabled && isRecording) {
-    chrome.scripting.executeScript({
-      target: { tabId: activeTabId },
-      files: ["content.js"]
-    });
-  }
-});
-*/
-
-
-/*
-let activeTabId;
-let isRecording = false;
-let autoRecordEnabled = false;
-
-// Check current tab on popup open
-document.addEventListener("DOMContentLoaded", async () => {
-  console.log("🔍 Popup opened - checking tab...");
-
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
-    if (tab && tab.url && isMeetTab(tab.url)) {
-      activeTabId = tab.id;
-      console.log("✅ Google Meet tab detected:", activeTabId);
-
-      // Check meeting status
-      chrome.tabs.sendMessage(activeTabId, { action: "checkMeetingStatus" }, (response) => {
-        if (response) updateMeetingStatusUI(response.isInMeeting, response.recording);
-      });
-    }
-
-    // Check current recording status and permission
-    await checkRecordingStatus();
-    await checkAutoRecordPermission();
-
-  } catch (error) {
-    console.error("❌ Error checking tab:", error);
-  }
-});
-
-function isMeetTab(url) {
-  return url && url.includes("meet.google.com");
-}
-
-// ------------------ UI UPDATE ------------------
-function updateMeetingStatusUI(isInMeeting, isRecordingFlag) {
-  const statusElement = document.getElementById("status");
-
-  if (isInMeeting) {
-    statusElement.textContent = isRecordingFlag ? "🟢 In Meet - Recording..." : "🟡 In Meet - Ready to Record";
-    statusElement.style.color = isRecordingFlag ? "#4CAF50" : "#FF9800";
-  } else {
-    statusElement.textContent = "⚪ Not in Meeting";
-    statusElement.style.color = "#9E9E9E";
-  }
-}
-
-function updateUIForRecording(recordingTime) {
-  document.getElementById("startBtn").disabled = true;
-  document.getElementById("stopBtn").disabled = autoRecordEnabled; // Disabled in auto mode
-  document.getElementById("timer").textContent = recordingTime;
-  document.getElementById("status").textContent = "🟢 Recording in background...";
-  document.getElementById("startBtn").textContent = "Recording...";
-  document.getElementById("warning").style.display = "block";
-  document.getElementById("startBtn").style.backgroundColor = "#666";
-  document.getElementById("stopBtn").style.backgroundColor = autoRecordEnabled ? "#666" : "#f44336";
-}
-
-function updateUIForReady() {
-  document.getElementById("startBtn").disabled = !activeTabId;
-  document.getElementById("stopBtn").disabled = true;
-  document.getElementById("timer").textContent = "00:00";
-
-  if (activeTabId) {
-    document.getElementById("status").textContent = "✅ Ready to record";
-  } else {
-    document.getElementById("status").textContent = "❌ Please open Google Meet";
-  }
-
-  document.getElementById("startBtn").textContent = "Start Recording";
-  document.getElementById("warning").style.display = activeTabId ? "block" : "none";
-  document.getElementById("startBtn").style.backgroundColor = activeTabId ? "#4CAF50" : "#666";
-  document.getElementById("stopBtn").style.backgroundColor = "#666";
-}
-
-// ------------------ AUTO RECORD PERMISSION ------------------
-async function checkAutoRecordPermission() {
-  const result = await chrome.storage.local.get(['autoRecordPermission']);
-  autoRecordEnabled = result.autoRecordPermission || false;
-
-  document.getElementById('autoRecordToggle').checked = autoRecordEnabled;
-  document.getElementById('toggleLabel').textContent = autoRecordEnabled ? 'ON' : 'OFF';
-  document.getElementById('permissionText').textContent = autoRecordEnabled
-    ? 'Auto recording enabled ✅'
-    : 'Automatically record when joining meetings';
-
-  // Disable Stop button if auto mode
-  document.getElementById('stopBtn').disabled = autoRecordEnabled;
-  document.getElementById('stopBtn').style.backgroundColor = autoRecordEnabled ? "#666" : "#f44336";
-
-  console.log("🔐 Auto record permission:", autoRecordEnabled);
-
-}
-
-document.getElementById('autoRecordToggle').addEventListener('change', async (e) => {
-  const enabled = e.target.checked;
-
-  if (enabled) {
-    const confirmed = confirm("Enable Auto Recording?\nAutomatically start recording when you join Meet and stop when you leave.");
-    if (confirmed) {
-      await chrome.runtime.sendMessage({ action: "grantAutoRecordPermission" });
-      autoRecordEnabled = true;
-    } else { e.target.checked = false; return; }
-    
-    document.getElementById('stopBtn').disabled = true;
-    document.getElementById('stopBtn').style.backgroundColor = "#666";
-
-  } else {
-    await chrome.runtime.sendMessage({ action: "revokeAutoRecordPermission" });
-    autoRecordEnabled = false;
-
-    document.getElementById('stopBtn').disabled = false;
-    document.getElementById('stopBtn').style.backgroundColor = "#f44336";
-  }
-  updateUIForReady();
-});
-
-// ------------------ RECORDING ------------------
-async function checkRecordingStatus() {
-  const result = await chrome.storage.local.get(['isRecording', 'recordingTime']);
-  isRecording = result.isRecording || false;
-
-  if (isRecording) updateUIForRecording(result.recordingTime || "00:00");
-  else updateUIForReady();
-}
-
-// Start Recording manually
-document.getElementById("startBtn").addEventListener("click", async () => {
-  if (!activeTabId) return alert("❌ Please open Google Meet first");
-
-  document.getElementById("startBtn").disabled = true;
-  document.getElementById("startBtn").textContent = "Starting...";
-  document.getElementById("status").textContent = "🟡 Starting recording...";
-
-  chrome.tabs.create({ url: chrome.runtime.getURL("recorder.html"), active: false }, (tab) => {
-    setTimeout(() => {
-      chrome.tabs.sendMessage(tab.id, { action: "startRecording", tabId: activeTabId });
-    }, 1000);
-  });
-});
-
-// Stop Recording manually
-document.getElementById("stopBtn").addEventListener("click", async () => {
-  stopRecordingAndDownload();
-});
-
-// ------------------ HELPER: Stop + Download ------------------
-async function stopRecordingAndDownload() {
-  document.getElementById("stopBtn").disabled = true;
-  document.getElementById("stopBtn").textContent = "Stopping...";
-  document.getElementById("status").textContent = "🟡 Stopping recording...";
-
-  const tabs = await chrome.tabs.query({ url: chrome.runtime.getURL("recorder.html") });
-  if (tabs.length > 0) {
-    chrome.tabs.sendMessage(tabs[0].id, { action: "stopRecording" });
-  } else {
-    await chrome.storage.local.remove(['isRecording', 'recordingTime']);
-    updateUIForReady();
-  }
-}
-
-// ------------------ LISTEN FOR MESSAGES ------------------
-chrome.runtime.onMessage.addListener((message) => {
-  if (message.action === "timerUpdate") document.getElementById("timer").textContent = message.time;
-
-  if (message.action === "recordingStarted") {
-    isRecording = true;
-    updateUIForRecording("00:00");
-  }
-
-  if (message.action === "recordingStopped") {
-    isRecording = false;
-    updateUIForReady();
-  }
-
-  if (message.action === "autoStopRecording") {
-    stopRecordingAndDownload();
-  }
-});
-
-// ------------------ POPUP TOOLTIP ------------------
-document.addEventListener('DOMContentLoaded', () => {
-  const toggleContainer = document.querySelector('.permission-toggle');
-  toggleContainer.title = "Automatically start/stop recording when joining/leaving Google Meet calls";
-
-  document.getElementById('startBtn').title = "Manually start recording current Meet tab";
-  document.getElementById('stopBtn').title = "Stop recording and download the video";
-});
-
-// ------------------ AUTO STOP DETECTION ------------------
-chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-  if (tabId === activeTabId && changeInfo.status === "complete" && autoRecordEnabled && isRecording) {
-    chrome.scripting.executeScript({
-      target: { tabId: activeTabId },
-      files: ["content.js"]
-    });
-  }
-});
-*/
-
-
-/*
-let activeTabId;
-let isRecording = false;
-let autoRecordEnabled = false;
-
-// Check current tab on popup open
-document.addEventListener("DOMContentLoaded", async () => {
-  console.log("🔍 Popup opened - checking tab...");
-
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
-    if (tab && tab.url && isMeetTab(tab.url)) {
-      activeTabId = tab.id;
-      console.log("✅ Google Meet tab detected:", activeTabId);
-
-      // Check meeting status
-      chrome.tabs.sendMessage(activeTabId, { action: "checkMeetingStatus" }, (response) => {
-        if (response) updateMeetingStatusUI(response.isInMeeting, response.recording);
-      });
-    }
-
-    // Check current recording status and permission
-    await checkRecordingStatus();
-    await checkAutoRecordPermission();
-
-  } catch (error) {
-    console.error("❌ Error checking tab:", error);
-  }
-});
-
-function isMeetTab(url) {
-  return url && url.includes("meet.google.com");
-}
-
-// ------------------ UI UPDATE ------------------
-function updateMeetingStatusUI(isInMeeting, isRecordingFlag) {
-  const statusElement = document.getElementById("status");
-
-  if (isInMeeting) {
-    statusElement.textContent = isRecordingFlag ? "🟢 In Meet - Recording..." : "🟡 In Meet - Ready to Record";
-    statusElement.style.color = isRecordingFlag ? "#4CAF50" : "#FF9800";
-  } else {
-    statusElement.textContent = "⚪ Not in Meeting";
-    statusElement.style.color = "#9E9E9E";
-  }
-}
-
-function updateUIForRecording(recordingTime) {
-  document.getElementById("startBtn").disabled = true;
-  document.getElementById("stopBtn").disabled = autoRecordEnabled; // Disabled in auto mode
-  document.getElementById("timer").textContent = recordingTime;
-  document.getElementById("status").textContent = "🟢 Recording in background...";
-  document.getElementById("startBtn").textContent = "Recording...";
-  document.getElementById("startBtn").style.backgroundColor = "#666";
-  document.getElementById("stopBtn").style.backgroundColor = autoRecordEnabled ? "#666" : "#f44336";
-}
-
-function updateUIForReady() {
-  document.getElementById("startBtn").disabled = !activeTabId;
-  document.getElementById("stopBtn").disabled = true;
-  document.getElementById("timer").textContent = "00:00";
-
-  if (activeTabId) {
-    document.getElementById("status").textContent = "✅ Ready to record";
-  } else {
-    document.getElementById("status").textContent = "❌ Please open Google Meet";
-  }
-
-  document.getElementById("startBtn").textContent = "Start Recording";
-  document.getElementById("startBtn").style.backgroundColor = activeTabId ? "#4CAF50" : "#666";
-  document.getElementById("stopBtn").style.backgroundColor = "#666";
-}
-
-// ------------------ AUTO RECORD PERMISSION ------------------
-async function checkAutoRecordPermission() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(['autoRecordPermission'], (result) => {
-      autoRecordEnabled = result.autoRecordPermission || false;
-      
-      console.log("🔄 DEBUG - Storage value:", result.autoRecordPermission);
-      console.log("🔄 DEBUG - autoRecordEnabled:", autoRecordEnabled);
-      
-      const toggle = document.getElementById('autoRecordToggle');
-      const label = document.getElementById('toggleLabel');
-      
-      console.log("🔄 DEBUG - Toggle element:", toggle);
-      console.log("🔄 DEBUG - Label element:", label);
-      
-      if (toggle) {
-        toggle.checked = autoRecordEnabled;
-        console.log("🔄 DEBUG - Toggle checked set to:", toggle.checked);
+function startUISyncChecker() {
+  setInterval(async () => {
+    if (isRecording) {
+      // If we think we're recording but no recorder tabs exist, reset UI
+      const tabs = await chrome.tabs.query({ url: chrome.runtime.getURL("recorder.html") });
+      if (tabs.length === 0) {
+        console.log("🔄 UI Sync: No recorder tabs but recording flag true - resetting");
+        isRecording = false;
+        updateUIForReady();
+        chrome.storage.local.set({ isRecording: false });
       }
-      if (label) {
-        label.textContent = autoRecordEnabled ? 'ON' : 'OFF';
-        console.log("🔄 DEBUG - Label set to:", label.textContent);
-      }
-
-      resolve(autoRecordEnabled);
-    });
-  });
+    }
+  }, 3000); // Check every 3 seconds
 }
 
-document.getElementById('autoRecordToggle').addEventListener('change', async (e) => {
-  const enabled = e.target.checked;
+// Check if recorder tab is actually working
+async function verifyRecorderTabStatus() {
+  try {
+    const tabs = await chrome.tabs.query({ url: chrome.runtime.getURL("recorder.html") });
+    if (tabs.length > 0) {
+      // Send a status check to recorder tab
+      chrome.tabs.sendMessage(tabs[0].id, { action: "checkRecorderStatus" }, (response) => {
+        if (chrome.runtime.lastError || !response || response.status !== "recording") {
+          console.log("🔄 Recorder tab not properly recording - resetting UI");
+          isRecording = false;
+          updateUIForReady();
+          chrome.storage.local.set({ isRecording: false });
+        }
+      });
+    } else {
+      // No recorder tabs found - ensure UI is reset
+      console.log("🔄 No recorder tabs found - ensuring UI is reset");
+      isRecording = false;
+      updateUIForReady();
+      chrome.storage.local.set({ isRecording: false });
+    }
+  } catch (error) {
+    console.log("⚠️ Error verifying recorder tab:", error);
+  }
+}
 
-  if (enabled) {
-    const confirmed = confirm("Enable Auto Recording?\nAutomatically start recording when you join Meet and stop when you leave.");
-    if (confirmed) {
-      await chrome.runtime.sendMessage({ action: "grantAutoRecordPermission" });
-      autoRecordEnabled = true;
-    } else { e.target.checked = false; return; }
+// Proper message listener with error handling
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  try {
+    if (message.action === "timerUpdate") {
+      document.getElementById("timer").textContent = message.time;
+    }
+    else if (message.action === "recordingStarted") {
+      isRecording = true;
+      updateUIForRecording("00:00");
+    }
+    else if (message.action === "recordingStopped") {
+      isRecording = false;
+      updateUIForReady();
     
-    document.getElementById('stopBtn').disabled = true;
-    document.getElementById('stopBtn').style.backgroundColor = "#666";
+      // Ensure recorder tabs are closed
+      setTimeout(() => {
+        closeAllRecorderTabs();
+      }, 1000);
+    }
+    else if (message.action === "autoStopRecording") {
+      stopRecordingAndDownload();
+    }
 
-  } else {
-    await chrome.runtime.sendMessage({ action: "revokeAutoRecordPermission" });
-    autoRecordEnabled = false;
-
-    document.getElementById('stopBtn').disabled = false;
-    document.getElementById('stopBtn').style.backgroundColor = "#f44336";
-  }
-  updateUIForReady();
-});
-
-// ------------------ RECORDING ------------------
-async function checkRecordingStatus() {
-  const result = await chrome.storage.local.get(['isRecording', 'recordingTime']);
-  isRecording = result.isRecording || false;
-
-  // 🆕 CHECK IF RECORDING WAS STOPPED BY TAB CLOSURE
-  if (result.recordingStoppedByTabClose) {
-    console.log("🔄 Recording was stopped by tab closure - resetting UI");
-    isRecording = false;
-    // Clean up the flag
-    chrome.storage.local.remove(['recordingStoppedByTabClose']);
-  }
-
-  if (isRecording) updateUIForRecording(result.recordingTime || "00:00");
-  else updateUIForReady();
-}
-
-// Start Recording manually
-document.getElementById("startBtn").addEventListener("click", async () => {
-  if (!activeTabId) return alert("❌ Please open Google Meet first");
-
-  document.getElementById("startBtn").disabled = true;
-  document.getElementById("startBtn").textContent = "Starting...";
-  document.getElementById("status").textContent = "🟡 Starting recording...";
-
-  chrome.tabs.create({ url: chrome.runtime.getURL("recorder.html"), active: false }, (tab) => {
-    setTimeout(() => {
-      chrome.tabs.sendMessage(tab.id, { action: "startRecording", tabId: activeTabId });
-    }, 1000);
-  });
-});
-
-// Stop Recording manually
-document.getElementById("stopBtn").addEventListener("click", async () => {
-  stopRecordingAndDownload();
-});
-
-// ------------------ HELPER: Stop + Download ------------------
-async function stopRecordingAndDownload() {
-  document.getElementById("stopBtn").disabled = true;
-  document.getElementById("stopBtn").textContent = "Stopping...";
-  document.getElementById("status").textContent = "🟡 Stopping recording...";
-
-  const tabs = await chrome.tabs.query({ url: chrome.runtime.getURL("recorder.html") });
-  if (tabs.length > 0) {
-    chrome.tabs.sendMessage(tabs[0].id, { action: "stopRecording" });
-  } else {
-    // 🆕 ENSURE UI RESETS EVEN IF RECORDER TAB NOT FOUND
-    await chrome.storage.local.remove(['isRecording', 'recordingTime','recordingStoppedByTabClose']);
-    isRecording = false;
-    updateUIForReady();
-  }
-}
-
-// ------------------ LISTEN FOR MESSAGES ------------------
-chrome.runtime.onMessage.addListener((message) => {
-  if (message.action === "timerUpdate") document.getElementById("timer").textContent = message.time;
-
-  if (message.action === "recordingStarted") {
-    isRecording = true;
-    updateUIForRecording("00:00");
-  }
-
-  if (message.action === "recordingStopped") {
-    isRecording = false;
-    updateUIForReady();
-  }
-
-  if (message.action === "autoStopRecording") {
-    stopRecordingAndDownload();
-  }
-});
-
-
-// Listen for storage changes (when recorder tab closes)
-chrome.storage.onChanged.addListener((changes, namespace) => {
-  if (namespace === 'local' && changes.recordingStoppedByTabClose) {
-    if (changes.recordingStoppedByTabClose.newValue === true) {
-      console.log("🔄 Recorder tab closed - resetting UI");
+    else if (message.action === "recordingCompleted") {
+      console.log("✅ Popup: Recording completed - resetting UI");
       isRecording = false;
       updateUIForReady();
       
-      // Clean up the flag
-      chrome.storage.local.remove(['recordingStoppedByTabClose']);
+      // Ensure recorder tabs are closed
+      setTimeout(() => {
+        closeAllRecorderTabs();
+      }, 1000);
     }
-  }
 
-  // 🆕 ADD THIS: Also reset when isRecording becomes false
-  if (namespace === 'local' && changes.isRecording) {
-    if (changes.isRecording.newValue === false) {
-      console.log("🔄 Recording stopped - resetting UI");
+    else if (message.action === "recorderFailed") {
+      console.error("❌ Recorder reported failure:", message.error);
       isRecording = false;
-      updateUIForReady();
+      document.getElementById("status").textContent = "❌ Recording Failed: " + message.error;
+      document.getElementById("status").style.color = "#f44336";
+      document.getElementById("startBtn").disabled = false;
+      document.getElementById("startBtn").textContent = "Start Recording";
+      document.getElementById("startBtn").style.backgroundColor = "#4CAF50";
+      document.getElementById("stopBtn").disabled = true;
+      document.getElementById("stopBtn").style.backgroundColor = "#666";
+      
+      // Clear storage to reflect actual state
+      chrome.storage.local.set({ isRecording: false });
     }
+    
+    sendResponse({ success: true });
+  } catch (error) {
+    console.error("❌ Error handling message:", error);
+    sendResponse({ success: false, error: error.message });
   }
+  
+  return true; 
 });
 
-// ------------------ POPUP TOOLTIP ------------------
+// Popup tooltip
 document.addEventListener('DOMContentLoaded', () => {
   const toggleContainer = document.querySelector('.permission-toggle');
   toggleContainer.title = "Automatically start/stop recording when joining/leaving Google Meet calls";
   document.getElementById('startBtn').title = "Manually start recording current Meet tab";
   document.getElementById('stopBtn').title = "Stop recording and download the video";
 });
-
-// ------------------ AUTO STOP DETECTION ------------------
-chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-  if (tabId === activeTabId && changeInfo.status === "complete" && autoRecordEnabled && isRecording) {
-    chrome.scripting.executeScript({
-      target: { tabId: activeTabId },
-      files: ["content.js"]
-    });
-  }
-});
-*/
-
-

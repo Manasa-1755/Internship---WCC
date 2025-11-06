@@ -9,7 +9,8 @@
     "downloads",
     "storage",
     "notifications",
-    "activeTab"
+    "activeTab",
+    "scripting"
   ],
   "host_permissions": [
     "https://meet.google.com/*"
@@ -29,8 +30,8 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["recorder.html", "recorder.js","icon-128.png"],
-      "matches": ["https://meet.google.com/*"]
+      "resources": ["recorder.html", "recorder.js"],
+      "matches": ["<all_urls>", "chrome-extension://*/*"]
     }
   ]
 }
