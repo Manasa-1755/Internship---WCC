@@ -2,10 +2,10 @@
   "manifest_version": 3,
   "name": "Meeting Recorder",
   "version": "1.0",
-  "description": "Record Google Meet and Microsoft Teams meetings with video + audio",
+  "description": "Record Google Meet & Microsoft Teams meetings",
   "permissions": [
     "tabs",
-    "tabCapture", 
+    "tabCapture",
     "downloads",
     "storage",
     "notifications",
@@ -18,7 +18,7 @@
     "https://*.teams.live.com/*"
   ],
   "action": {
-    "default_popup": "popup/popup.html"
+    "default_popup": "popup.html"
   },
   "background": {
     "service_worker": "background.js"
@@ -26,7 +26,7 @@
   "content_scripts": [
     {
       "matches": ["https://meet.google.com/*"],
-      "js": ["platforms/gmeet/content.js"],
+      "js": ["content.js"],
       "run_at": "document_idle"
     },
     {
@@ -34,28 +34,14 @@
         "https://*.teams.microsoft.com/*",
         "https://*.teams.live.com/*"
       ],
-      "js": ["platforms/teams/content.js"],
+      "js": ["content.js"],
       "run_at": "document_end"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": [
-        "platforms/gmeet/recorder.html", 
-        "platforms/teams/recorder.html",
-        "platforms/gmeet/recorder.js",
-        "platforms/teams/recorder.js",
-        "platforms/gmeet/popup-gmeet.js",
-        "platforms/teams/popup-teams.js",
-        "platforms/gmeet/popup-gmeet.html",
-        "platforms/teams/popup-teams.html",
-        "popup.css"
-      ],
-      "matches": [
-        "https://meet.google.com/*",
-        "https://*.teams.microsoft.com/*", 
-        "https://*.teams.live.com/*"
-      ]
+      "resources": ["recorder.html", "recorder.js"],
+      "matches": ["<all_urls>"]
     }
   ]
 }
