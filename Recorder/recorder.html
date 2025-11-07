@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Universal Meeting Recorder</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      text-align: center;
+      background: #f0f0f0;
+      margin: 0;
+    }
+    .header {
+      margin-bottom: 20px;
+    }
+    .service-indicator {
+      font-size: 12px;
+      color: #666;
+      margin-top: 5px;
+    }
+    #status {
+      font-size: 16px;
+      margin: 20px 0;
+      padding: 10px;
+      border-radius: 5px;
+      background: #e8f5e8;
+      border: 1px solid #4caf50;
+      min-height: 20px;
+    }
+    #timer {
+      font-size: 24px;
+      font-weight: bold;
+      margin: 20px 0;
+      color: #333;
+    }
+    .auto-record-indicator {
+      font-size: 12px;
+      padding: 4px 8px;
+      border-radius: 3px;
+      margin-left: 10px;
+    }
+    .auto-on {
+      background: #4CAF50;
+      color: white;
+    }
+    .auto-off {
+      background: #666;
+      color: white;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h2>🎬 Universal Recorder</h2>
+    <div class="service-indicator" id="serviceIndicator">Detecting service...</div>
+  </div>
+  <div id="timer">00:00</div>
+  <div id="status">Ready to start recording...</div>
+  
+  <script src="recorder.js"></script>
+</body>
+</html>
