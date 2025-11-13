@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Meeting Recorder</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      text-align: center;
+      background: #f0f0f0;
+    }
+    #status {
+      font-size: 16px;
+      margin: 20px 0;
+      padding: 10px;
+      border-radius: 5px;
+      background: #e8f5e8;
+      border: 1px solid #4caf50;
+    }
+    #timer {
+      font-size: 24px;
+      font-weight: bold;
+      margin: 20px 0;
+      color: #333;
+    }
+    .service-badge {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      padding: 5px 10px;
+      border-radius: 15px;
+      font-size: 12px;
+      font-weight: bold;
+      color: white;
+    }
+    .gmeet-badge {
+      background: #0f9d58;
+    }
+    .teams-badge {
+      background: #464EB8;
+    }
+  </style>
+</head>
+<body>
+  <div id="serviceBadge" class="service-badge"></div>
+  <h2>🎬 Meeting Recorder</h2>
+  <div id="timer">00:00</div>
+  <div id="status">Ready to start recording...</div>
+  
+  <script src="recorder.js"></script>
+  <script>
+    // Set service badge based on URL parameter
+    const urlParams = new URLSearchParams(window.location.search);
+    const service = urlParams.get('service') || 'gmeet';
+    const badge = document.getElementById('serviceBadge');
+    
+    if (service === 'gmeet') {
+      badge.textContent = 'Google Meet';
+      badge.className = 'service-badge gmeet-badge';
+      document.title = 'Google Meet Recorder';
+    } else if (service === 'teams') {
+      badge.textContent = 'Microsoft Teams';
+      badge.className = 'service-badge teams-badge';
+      document.title = 'Teams Recorder';
+    }
+  </script>
+</body>
+</html>
