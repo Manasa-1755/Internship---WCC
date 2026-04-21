@@ -1399,20 +1399,6 @@
         let autoRecordEnabled = false;
         let meetingStartTimeout = null;
 
-        function getZoomMuteStatus() {
-    const muteButton = document.querySelector('[aria-label*="mute my microphone"]') ||
-                      document.querySelector('[aria-label*="unmute my microphone"]') ||
-                      document.querySelector('.footer-button-base__button[aria-label*="mute"]') ||
-                      document.querySelector('.join-audio-container__btn');
-    
-    if (muteButton) {
-        const ariaLabel = muteButton.getAttribute('aria-label') || '';
-        const isMuted = ariaLabel.toLowerCase().includes('unmute');
-        return { isMuted: isMuted };
-    }
-    return { isMuted: false };
-}
-
     // ==================== ZOOM STATUS FUNCTIONS ====================
     function showZoomStatus(message, duration = 4000) {
         const existing = document.getElementById('zoom-recorder-status');
@@ -2092,11 +2078,6 @@
                 showZoomStatus("❌ Permission needed - please click extension icon once to grant access", 6000);
                 sendResponse({ success: true });
             }
-
-             if (message.action === "getZoomMuteStatus") {
-    const status = getZoomMuteStatus();
-    sendResponse(status);
-}
             
             return true;
         });
