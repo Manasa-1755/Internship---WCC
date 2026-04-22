@@ -570,7 +570,7 @@
     
             // Show initial status based on auto-record setting
             if (autoRecordEnabled) {
-                showMeetStatus("✅ Google Meet's Auto Recording Enabled \nPermission needed - please click the extension icon once to grant access", 3000);
+                showMeetStatus("✅ Google Meet's Auto Recording Enabled", 3000);
             } else {
                 showMeetStatus("✅ Google Meet's Manual Recorder Is Ready", 3000);
             }
@@ -1229,7 +1229,7 @@
 
                 // Show initial status based on auto-record setting
                 if (autoRecordEnabled) {
-                    showTeamsStatus("✅ Teams Auto Recording Enabled \nPermission needed - please click the extension icon once to grant access", 3000);
+                    showTeamsStatus("✅ Teams Auto Recording Enabled", 3000);
                 } else {
                     showTeamsStatus("✅ Teams Recorder Ready - Manual mode", 3000);
                 }
@@ -2101,7 +2101,7 @@
             // Show initial status based on auto-record setting
             checkAutoRecordPermission().then((enabled) => {
                 if (enabled) {
-                    showZoomStatus("✅ Zoom Auto Recording Enabled \nPermission needed - please click the extension icon once to grant access", 3000);
+                    showZoomStatus("✅ Zoom Auto Recording Enabled", 3000);
                 } else {
                     showZoomStatus("✅ Zoom Recorder Ready - Manual mode", 3000);
                 }
