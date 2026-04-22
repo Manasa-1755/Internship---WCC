@@ -79,7 +79,8 @@
     async function syncToggleState() {
         return new Promise((resolve) => {
             chrome.storage.local.get(['autoRecordPermissions'], (result) => {
-                autoRecordEnabled = result.autoRecordPermissions || false;
+                // Use currentService to get the correct service's permission
+                autoRecordEnabled = result.autoRecordPermissions?.[currentService] || false;
                 console.log("🔄 Recorder: Auto record permission:", autoRecordEnabled);
                 updateToggleDisplay();
                 resolve(autoRecordEnabled);
