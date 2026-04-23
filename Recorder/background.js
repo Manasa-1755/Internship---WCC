@@ -335,10 +335,23 @@
         }
     }
 
-    function handleZoomAutoStart(sender) {
+    async function handleZoomAutoStart(sender) {
         const timestamp = new Date().toLocaleTimeString();
         console.log(`🎬 Auto starting recording for Zoom at ${timestamp}`);
         console.log("📍 Source tab:", sender.tab.id, sender.tab.url);
+        
+        // Check if already recording
+        const result = await chrome.storage.local.get(['isRecording']);
+        if (result.isRecording) {
+            console.log("⚠️ Already recording - ignoring Zoom auto-record request");
+            return { success: false, reason: "already_recording" };
+        }
+        
+        if (currentRecordingTab && !isAutoRecording) {
+            console.log("⚠️ Already recording in tab:", currentRecordingTab);
+            return { success: false, reason: "already_recording" };
+        }
+        
         startRecordingForTab(sender.tab.id, 'zoom');
         return { success: true };
     }
