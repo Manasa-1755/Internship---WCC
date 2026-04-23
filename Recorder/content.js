@@ -1398,311 +1398,257 @@
         let recordingStarted = false;
         let autoRecordEnabled = false;
         let meetingStartTimeout = null;
+        let ignoreAutoStopUntil = 0;
 
-    // ==================== ZOOM STATUS FUNCTIONS ====================
-    function showZoomStatus(message, duration = 4000) {
-        const existing = document.getElementById('zoom-recorder-status');
-    
-        if (existing && message.includes("Recording...")) {
-            existing.innerHTML = message.replace(/\n/g, '<br>');
-            return;
+        function isMeetingPage() {
+            const url = location.href;
+            return url.includes("/wc/") && (
+                url.includes("/join") ||
+                url.includes("/start") ||
+                url.match(/\/wc\/\d+/)
+            );
         }
-    
-        if (existing) existing.remove();
-    
-        const status = document.createElement('div');
-        status.id = 'zoom-recorder-status';
-        status.innerHTML = message.replace(/\n/g, '<br>');
-        status.style.cssText = `
-            position: fixed;
-            top: 80px;
-            right: 20px;
-            background: rgba(0,0,0,0.95);
-            color: white;
-            padding: 12px 16px;
-            border-radius: 10px;
-            font-family: 'Segoe UI', Arial, sans-serif;
-            font-size: 14px;
-            z-index: 100000;
-            font-weight: bold;
-            border: 2px solid #2D8CFF;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-            backdrop-filter: blur(10px);
-            max-width: 400px;
-            word-wrap: break-word;
-        `;
-    
-        document.body.appendChild(status);
 
-        if (!message.includes("Recording...")) {
-            setTimeout(() => {
-                const currentStatus = document.getElementById('zoom-recorder-status');
-                if (currentStatus && !currentStatus.innerHTML.includes("Recording...")) {
-                    currentStatus.remove();
-                }
-            }, duration);
+        // ==================== ZOOM STATUS FUNCTIONS ====================
+        function showZoomStatus(message, duration = 4000) {
+            const existing = document.getElementById('zoom-recorder-status');
+        
+            if (existing && message.includes("Recording...")) {
+                existing.innerHTML = message.replace(/\n/g, '<br>');
+                return;
+            }
+        
+            if (existing) existing.remove();
+        
+            const status = document.createElement('div');
+            status.id = 'zoom-recorder-status';
+            status.innerHTML = message.replace(/\n/g, '<br>');
+            status.style.cssText = `
+                position: fixed;
+                top: 80px;
+                right: 20px;
+                background: rgba(0,0,0,0.95);
+                color: white;
+                padding: 12px 16px;
+                border-radius: 10px;
+                font-family: 'Segoe UI', Arial, sans-serif;
+                font-size: 14px;
+                z-index: 100000;
+                font-weight: bold;
+                border: 2px solid #2D8CFF;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                backdrop-filter: blur(10px);
+                max-width: 400px;
+                word-wrap: break-word;
+            `;
+        
+            document.body.appendChild(status);
+
+            if (!message.includes("Recording...")) {
+                setTimeout(() => {
+                    const currentStatus = document.getElementById('zoom-recorder-status');
+                    if (currentStatus && !currentStatus.innerHTML.includes("Recording...")) {
+                        currentStatus.remove();
+                    }
+                }, duration);
+            }
         }
-    }
 
-    function broadcastTimerUpdateToZoom(timeStr) {
-        chrome.runtime.sendMessage({
-            action: "updateZoomTimer",
-            time: timeStr
-        });
-    }
-
-    function broadcastToZoomTab(message, duration = 4000) {
-        chrome.runtime.sendMessage({
-            action: "showZoomStatus", 
-            message: message,
-            duration: duration
-        });
-    }
-
-    // Check auto record permission on load
-    checkAutoRecordPermission();
-
-    async function checkAutoRecordPermission() {
-        return new Promise((resolve) => {
-            chrome.storage.local.get(['autoRecordPermissions'], (result) => {
-                // Get service-specific permission for Zoom
-                autoRecordEnabled = result.autoRecordPermissions?.['zoom'] || false;
-                console.log("🔐 Auto record enabled for zoom:", autoRecordEnabled);
-                resolve(autoRecordEnabled);
+        function broadcastTimerUpdateToZoom(timeStr) {
+            chrome.runtime.sendMessage({
+                action: "updateZoomTimer",
+                time: timeStr
             });
-        });
-    }
+        }
 
-    // IMPROVED MEETING DETECTION
-    function startMeetingDetection() {
-        console.log("🚀 Starting Zoom meeting detection...");
-            
-        let lastState = false;
-        let detectionCount = 0;
-            
-        const detectionInterval = setInterval(() => {
-            detectionCount++;
-                
-            // MULTIPLE DETECTION METHODS
-            const meetingIndicators = [
-                // Main meeting container
-                document.querySelector('.main-body-layout_mainBody__YKEeP'),
-                // Video container
-                document.querySelector('.video-layout'),
-                // Active speaker
-                document.querySelector('.active-speaker'),
-                // Gallery view
-                document.querySelector('.gallery-view'),
-                // Meeting container
-                document.querySelector('[data-meeting="true"]'),
-                // Video element with specific classes
-                document.querySelector('.video-window'),
-                // Zoom specific selectors
-                document.querySelector('.zm-btn.join-audio-by-voip__join-btn'),
-                document.querySelector('.footer-button-base__button-edge'),
-                document.querySelector('[aria-label*="meeting"]'),
-                document.querySelector('.video-container')
-            ].filter(el => {
-                if (!el) return false;
-                const rect = el.getBoundingClientRect();
-                return rect.width > 300 && rect.height > 200;
+        function broadcastToZoomTab(message, duration = 4000) {
+            chrome.runtime.sendMessage({
+                action: "showZoomStatus", 
+                message: message,
+                duration: duration
             });
+        }
 
-            const meetingDetected = meetingIndicators.length > 0;
-                
-            console.log("🔍 Zoom meeting check:", {
-                attempt: detectionCount,
-                meetingDetected: meetingDetected,
-                isInMeeting: isInMeeting,
-                indicators: meetingIndicators.length
-            });
-                
-            if (meetingDetected && !lastState && !isInMeeting) {
-                console.log("🎯 ZOOM MEETING STARTED DETECTED!");
-                startMeetingWithDelay();
-            } else if (!meetingDetected && lastState && isInMeeting) {
-                console.log("🛑 ZOOM MEETING ENDED DETECTED!");
-                meetingEnded();
-            }
-                
-            lastState = meetingDetected;
-                
-            // Stop detection after 30 attempts to prevent infinite loop
-            if (detectionCount >= 30) {
-                console.log("⏹️ Stopping Zoom meeting detection after 30 attempts");
-                clearInterval(detectionInterval);
-            }
-        }, 3000);
-    }
+        // Check auto record permission on load
+        checkAutoRecordPermission();
 
-    // NUCLEAR OPTION - ABSOLUTELY CERTAIN END BUTTON DETECTION
-    function setupEndButtonDetection() {
-        console.log("🖱️ ZOOM NUCLEAR OPTION - Setting up ABSOLUTE End button detection...");
-
-        // METHOD 1: INTERCEPT ALL BUTTON CLICKS ON THE ENTIRE PAGE
-        document.addEventListener('click', function(event) {
-            console.log("🖱️ ZOOM NUCLEAR: Global click detected");
-                
-            const target = event.target;
-                
-            // Check if this is ANY button that could be leave/end related
-            if (target.tagName === 'BUTTON') {
-                const buttonText = (target.textContent || '').trim().toLowerCase();
-                const buttonHtml = target.outerHTML.toLowerCase();
-                    
-                console.log("🖱️ ZOOM NUCLEAR: Button clicked - Text:", buttonText);
-                    
-                // EXTREMELY BROAD DETECTION - catch ANY leave/end related button
-                if (buttonText.includes('leave') || 
-                    buttonText.includes('end') ||
-                    buttonText.includes('leave meeting') ||
-                    buttonText.includes('end meeting') ||
-                    buttonHtml.includes('leave') ||
-                    buttonHtml.includes('end') ||
-                    target.className.includes('leave') ||
-                    target.className.includes('end') ||
-                    target.id.includes('leave') ||
-                    target.id.includes('end')) {
-                        
-                    console.log("🎯 ZOOM NUCLEAR: LEAVE/END BUTTON DETECTED!", buttonText);
-                    console.log("🔍 Button details:", {
-                        text: buttonText,
-                        className: target.className,
-                        id: target.id,
-                        html: target.outerHTML.substring(0, 200)
-                    });
-                        
-                    // STOP EVERYTHING IMMEDIATELY
-                    event.stopImmediatePropagation();
-                    event.preventDefault();
-                        
-                    // Force stop recording
-                    forceStopRecording();
-                    return;
-                }
-            }
-                
-            // Also check if click is inside a button
-            const buttonParent = target.closest('button');
-            if (buttonParent) {
-                const buttonText = (buttonParent.textContent || '').trim().toLowerCase();
-                console.log("🖱️ ZOOM NUCLEAR: Click inside button - Text:", buttonText);
-                    
-                if (buttonText.includes('leave') || buttonText.includes('end')) {
-                    console.log("🎯 ZOOM NUCLEAR: LEAVE/END BUTTON (PARENT) DETECTED!", buttonText);
-                    event.stopImmediatePropagation();
-                    event.preventDefault();
-                    forceStopRecording();
-                    return;
-                }
-            }
-        }, true); // CAPTURE PHASE - MOST AGGRESSIVE
-
-            // METHOD 2: MONITOR URL CHANGES - WHEN MEETING ENDS, URL CHANGES
-            let lastUrl = window.location.href;
-            const urlChecker = setInterval(() => {
-                const currentUrl = window.location.href;
-                if (currentUrl !== lastUrl) {
-                    console.log("🔗 ZOOM NUCLEAR: URL changed from", lastUrl, "to", currentUrl);
-                    
-                    // If we were in a meeting and now we're not, stop recording
-                    if (isInMeeting && !currentUrl.includes('/wc/') && !currentUrl.includes('/meeting/')) {
-                        console.log("🛑 ZOOM NUCLEAR: Meeting ended (URL change detected)");
-                        forceStopRecording();
-                    }
-                    
-                    lastUrl = currentUrl;
-                }
-            }, 1000);
-
-            // METHOD 3: MONITOR PAGE VISIBILITY - WHEN USER LEAVES MEETING
-            document.addEventListener('visibilitychange', function() {
-                if (document.hidden && isInMeeting && recordingStarted) {
-                    console.log("👻 ZOOM NUCLEAR: Page hidden during meeting - stopping recording");
-                    setTimeout(() => {
-                        forceStopRecording();
-                    }, 2000);
-                }
-            });
-
-            // METHOD 4: PERIODIC FORCE CHECK - EVERY 2 SECONDS CHECK IF WE SHOULD STOP
-            const forceChecker = setInterval(() => {
-                // Check if leave container is visible
-                const leaveContainers = [
-                    '#wc-footer > div.footer__inner.leave-option-container',
-                    '.leave-option-container',
-                    '[class*="leave"]',
-                    '[class*="end"]',
-                    '.footer-button-base__button-edge' // Zoom specific
-                ];
-                
-                let leaveContainerVisible = false;
-                leaveContainers.forEach(selector => {
-                    const element = document.querySelector(selector);
-                    if (element && element.offsetParent !== null) { // Check if visible
-                        console.log("🔍 ZOOM NUCLEAR: Leave container visible:", selector);
-                        leaveContainerVisible = true;
-                    }
+        async function checkAutoRecordPermission() {
+            return new Promise((resolve) => {
+                chrome.storage.local.get(['autoRecordPermissions'], (result) => {
+                    // Get service-specific permission for Zoom
+                    autoRecordEnabled = result.autoRecordPermissions?.['zoom'] || false;
+                    console.log("🔐 Auto record enabled for zoom:", autoRecordEnabled);
+                    resolve(autoRecordEnabled);
                 });
-                
-                // If leave container is visible and we're recording, stop after delay
-                if (leaveContainerVisible && recordingStarted) {
-                    console.log("🛑 ZOOM NUCLEAR: Leave container detected - stopping recording in 3 seconds");
-                    setTimeout(() => {
-                        forceStopRecording();
-                    }, 3000);
-                }
-            }, 2000);
-
-            console.log("✅ ZOOM NUCLEAR OPTION: End button detection setup complete");
+            });
         }
 
-        // FORCE STOP RECORDING - ABSOLUTELY CERTAIN STOP
-        function forceStopRecording() {
-            console.log("🛑🛑🛑 ZOOM NUCLEAR: FORCE STOP RECORDING 🛑🛑🛑");
+        function startMeetingDetection() {
+            console.log("🚀 Starting Zoom meeting detection...");
             
-            // Clear any timeouts
+            let lastMeetingState = false;
+            
+            setInterval(() => {
+                const isOnMeetingPage = isMeetingPage();
+                
+                if (isOnMeetingPage && !lastMeetingState && !isInMeeting) {
+                    console.log("🎯 ZOOM MEETING PAGE DETECTED!");
+                    startMeetingWithDelay();
+                }
+                
+                if (!isOnMeetingPage && lastMeetingState && isInMeeting) {
+                    if (Date.now() < ignoreAutoStopUntil) {
+                        console.log("⏱️ Auto-stop BLOCKED - small X button was clicked");
+                        ignoreAutoStopUntil = 0;
+                    } else {
+                        console.log("🛑 ZOOM MEETING ENDED - URL changed!");
+                        meetingEnded();
+                    }
+                }
+                
+                lastMeetingState = isOnMeetingPage;
+            }, 1000);
+        }
+
+        function setupEndButtonDetection() {
+            console.log("🖱️ ZOOM LEAVE/END BUTTON DETECTION - ACTIVATED!");
+            
+            function findInShadow(element, searchText) {
+                try {
+                    if (element.textContent && element.textContent.toLowerCase().includes(searchText.toLowerCase())) {
+                        return element;
+                    }
+                    if (element.children) {
+                        for (let child of element.children) {
+                            const result = findInShadow(child, searchText);
+                            if (result) return result;
+                        }
+                    }
+                    if (element.shadowRoot) {
+                        for (let child of element.shadowRoot.children) {
+                            const result = findInShadow(child, searchText);
+                            if (result) return result;
+                        }
+                    }
+                } catch (e) {}
+                return null;
+            }
+        
+            function attachLeaveButtonListener() {
+                let leaveBtn = document.querySelector('#wc-footer > div.footer__inner.leave-option-container > div:nth-child(1) > div > div > button:nth-child(2)');
+                let endForAllBtn = document.querySelector('#wc-footer > div.footer__inner.leave-option-container > div:nth-child(1) > div > div > button.zmu-btn.leave-meeting-options__btn.leave-meeting-options__btn--default.leave-meeting-options__btn--danger.zmu-btn--default.zmu-btn__outline--white');
+                
+                if (!leaveBtn || !endForAllBtn) {
+                    const container = document.querySelector('.leave-option-container');
+                    if (container) {
+                        const btns = container.querySelectorAll('button');
+                        btns.forEach((btn) => {
+                            const text = btn.textContent.toLowerCase().trim();
+                            if (!leaveBtn && (text === 'leave meeting' || text.includes('leave'))) {
+                                leaveBtn = btn;
+                            }
+                            if (!endForAllBtn && (text === 'end meeting for all' || btn.className.includes('danger'))) {
+                                endForAllBtn = btn;
+                            }
+                        });
+                    }
+                }
+                
+                if (leaveBtn && !leaveBtn.hasAttribute('data-leave-listener')) {
+                    leaveBtn.setAttribute('data-leave-listener', 'true');
+                    leaveBtn.addEventListener('click', () => {
+                        console.log("🎯 LEAVE MEETING CLICKED - STOPPING NOW");
+                        stopRecording();
+                    });
+                    console.log("✅ LISTENER ATTACHED TO LEAVE MEETING BUTTON");
+                }
+                
+                if (endForAllBtn && !endForAllBtn.hasAttribute('data-end-listener')) {
+                    endForAllBtn.setAttribute('data-end-listener', 'true');
+                    endForAllBtn.addEventListener('click', () => {
+                        console.log("🎯 END MEETING FOR ALL CLICKED - STOPPING NOW");
+                        stopRecording();
+                    });
+                    console.log("✅ LISTENER ATTACHED TO END MEETING FOR ALL BUTTON");
+                }
+            }
+        
+            attachLeaveButtonListener();
+            setInterval(() => {
+                attachLeaveButtonListener();
+            }, 2000);
+        }
+
+        function setupURLChangeDetection() {
+            console.log("🌐 Setting up Zoom URL change detection...");
+            
+            let lastURL = window.location.href;
+            
+            setInterval(() => {
+                const currentURL = window.location.href;
+                
+                if (currentURL !== lastURL) {
+                    const wasMeetingURL = lastURL.includes('/wc/') && (
+                        lastURL.includes('/start') || 
+                        lastURL.includes('/join') ||
+                        lastURL.match(/\/wc\/\d+/)
+                    );
+                    
+                    const isMeetingURL = currentURL.includes('/wc/') && (
+                        currentURL.includes('/start') || 
+                        currentURL.includes('/join') ||
+                        currentURL.match(/\/wc\/\d+/)
+                    );
+                    
+                    if (wasMeetingURL && !isMeetingURL && isInMeeting) {
+                        if (Date.now() < ignoreAutoStopUntil) {
+                            console.log("⏱️ URL CHANGE AUTO-STOP BLOCKED - small X button was clicked");
+                            ignoreAutoStopUntil = 0;
+                        } else {
+                            console.log("🛑 URL CHANGED - USER LEFT MEETING!");
+                            meetingEnded();
+                        }
+                    }
+                    
+                    lastURL = currentURL;
+                }
+            }, 500);
+        }
+
+        function startMeetingWithDelay() {
+            if (isInMeeting) return;
+            
+            if (meetingStartTimeout) {
+                clearTimeout(meetingStartTimeout);
+            }
+            
+            console.log("⏰ Zoom: Starting 3-second delay before recording...");
+            
+            if (autoRecordEnabled) {
+                showZoomStatus("🟡 Auto recording starting in 3 seconds...");
+            }
+            
+            meetingStartTimeout = setTimeout(() => {
+                console.log("⏰ Zoom: 3-second delay completed - starting meeting");
+                meetingStarted();
+            }, 3000);
+        }
+
+        function stopRecording() {
+            console.log("🛑🛑🛑 STOP RECORDING CALLED 🛑🛑🛑");
+            
             if (meetingStartTimeout) {
                 clearTimeout(meetingStartTimeout);
                 meetingStartTimeout = null;
             }
             
-            // Update states
+            chrome.runtime.sendMessage({ action: "autoStopRecording" }, (response) => {
+                console.log("✅ STOP MESSAGE SENT - Response:", response);
+            });
+            
+            recordingStarted = false;
             isInMeeting = false;
-            
-            if (recordingStarted) {
-                console.log("🚨 ZOOM NUCLEAR: Stopping active recording");
-                recordingStarted = false;
-
-                // Show appropriate status based on recording mode
-                if (autoRecordEnabled) {
-                    showZoomStatus("🟡 Auto Recording Stopped - Meeting ended");
-                } else {
-                    showZoomStatus("🟡 Recording Stopped - Meeting ended");
-                }
-
-                // Hide UI immediately
-                hideRecordingPopup();
-                hideRecordingTimer();
-                
-                // Send stop message to background
-                chrome.runtime.sendMessage({ action: "autoStopRecording" }, (response) => {
-                    if (response && response.success) {
-                        console.log("✅ ZOOM NUCLEAR: Recording stopped successfully");
-                        showRecordingNotification("stopped");
-                    } else {
-                        console.log("❌ ZOOM NUCLEAR: Failed to stop via message, trying emergency stop");
-                        emergencyStop();
-                    }
-                });
-            } else {
-                console.log("⚠️ ZOOM NUCLEAR: No recording active, but cleaning up");
-                hideRecordingPopup();
-                hideRecordingTimer();
-            }
-            
-            // Update storage
-            chrome.storage.local.set({ isInMeeting: false });
+            hideRecordingPopup();
         }
 
         // EMERGENCY STOP - WHEN NORMAL STOP FAILS
@@ -1732,47 +1678,41 @@
             }
         }
 
-        function startMeetingWithDelay() {
-            if (isInMeeting) {
-                console.log("⚠️ Already in Zoom meeting, ignoring");
+        function meetingStarted() {
+            if (isInMeeting && recordingStarted) return;
+
+            console.log("🎯 ZOOM MEETING STARTED");
+            isInMeeting = true;
+
+            checkAutoRecordPermission().then(() => {
+                if (autoRecordEnabled && !recordingStarted) {
+                    console.log("🎬 ZOOM AUTO RECORDING STARTING");
+                    startAutoRecording();
+                }
+            });
+
+            showMeetingNotification("started");
+            chrome.storage.local.set({ isInMeeting: isInMeeting });
+        }
+
+        function meetingEnded() {
+            if (!isInMeeting) return;
+            
+            if (Date.now() < ignoreAutoStopUntil) {
+                console.log("⏱️ Auto-stop BLOCKED - small X button was clicked");
                 return;
             }
             
-            if (meetingStartTimeout) {
-                clearTimeout(meetingStartTimeout);
+            console.log("🎯 ZOOM MEETING ENDED - EXECUTING STOP SEQUENCE");
+            isInMeeting = false;
+            
+            if (recordingStarted) {
+                console.log("⏹️ RECORDING ACTIVE - STOPPING AND DOWNLOADING NOW");
+                stopAutoRecording();
             }
             
-            console.log("⏰ Zoom: Starting 3-second delay before recording...");
-            
-            // Only show auto-recording message if auto-record is enabled
-            if (autoRecordEnabled) {
-                showZoomStatus("🟡 Auto recording starting in 3 seconds...");
-            } else {
-                showZoomStatus("🟡 Meeting detected - ready to record");
-            }
-            
-            meetingStartTimeout = setTimeout(() => {
-                console.log("⏰ Zoom: 3-second delay completed - starting meeting");
-                meetingStarted();
-            }, 3000);
-        }
-
-        function meetingStarted() {
-            if (isInMeeting) return;
-    
-            console.log("🎯 ZOOM MEETING STARTED");
-            isInMeeting = true;
-    
-            // Only show auto-recording status if auto-record is enabled
-            if (autoRecordEnabled && !recordingStarted) {
-                console.log("🎬 ZOOM AUTO RECORDING STARTING");
-                startAutoRecording();
-            } else if (!autoRecordEnabled) {
-                // Show different status for manual recording availability
-                showZoomStatus("✅ In Zoom meeting - Ready for manual recording", 5000);
-            }
-    
-            showMeetingNotification("started");
+            recordingStarted = false;
+            showMeetingNotification("ended");
             chrome.storage.local.set({ isInMeeting: isInMeeting });
         }
 
@@ -2091,25 +2031,23 @@
             });
         });
 
-        // Initial setup
         setTimeout(() => {
             console.log("🔧 Starting Zoom Auto Recorder...");
             startMeetingDetection();
             setupEndButtonDetection();
-            console.log("✅ Zoom Auto Recorder initialized");
+            setupURLChangeDetection();
     
-            // Show initial status based on auto-record setting
-            checkAutoRecordPermission().then((enabled) => {
-                if (enabled) {
-                    showZoomStatus("✅ Zoom Auto Recording Enabled", 3000);
-                } else {
-                    showZoomStatus("✅ Zoom Recorder Ready - Manual mode", 3000);
+            window.addEventListener('beforeunload', () => {
+                if (isInMeeting && recordingStarted) {
+                    console.log("🚨 PAGE UNLOADING - FORCE STOPPING RECORDING");
+                    chrome.runtime.sendMessage({ action: "autoStopRecording" });
                 }
             });
+    
+            console.log("✅ Zoom Auto Recorder initialized");
         }, 1000);
 
         console.log("🔍 Zoom Auto Recorder content script loaded");
     }
 })();
-
 
