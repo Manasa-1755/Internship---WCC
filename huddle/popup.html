@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Huddle Tracker</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h2>🎤 Huddle Tracker</h2>
+      <div class="subtitle">Google Chat Huddle</div>
+    </div>
+    
+    <div class="status-badge" id="statusBadge">
+      <span id="huddleStatusIcon">⚪</span>
+      <span id="huddleStatusText">Not in huddle</span>
+    </div>
+    
+    <div class="card">
+      <div class="card-title">📅 Last Huddle Session</div>
+      
+      <div class="info-row">
+        <span class="label">🎤 Started:</span>
+        <span class="value" id="startTime">--:--:--</span>
+      </div>
+      
+      <div class="info-row">
+        <span class="label">🔴 Ended:</span>
+        <span class="value" id="endTime">--:--:--</span>
+      </div>
+      
+      <div class="info-row">
+        <span class="label">⏱️ Duration:</span>
+        <span class="value" id="duration">--m --s</span>
+      </div>
+    </div>
+    
+    <div class="card" id="currentHuddleCard" style="display: none;">
+      <div class="card-title">🔴 Current Huddle</div>
+      
+      <div class="info-row">
+        <span class="label">🎤 Started:</span>
+        <span class="value" id="currentStartTime">--:--:--</span>
+      </div>
+      
+      <div class="info-row">
+        <span class="label">⏱️ Running:</span>
+        <span class="value" id="currentDuration">0m 0s</span>
+      </div>
+    </div>
+    
+    <div class="note">
+      💡 Open Google Chat and join a huddle<br>
+      Times will appear here automatically!
+    </div>
+  </div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>
