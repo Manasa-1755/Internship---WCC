@@ -2,9 +2,11 @@
   "manifest_version": 3,
   "name": "Huddle Tracker",
   "version": "1.0.0",
-  "description": "Track Google Chat huddle start time, end time, and duration",
+  "description": "Track Google Chat huddle start time, end time, and duration with recording",
   "permissions": [
-    "storage"
+    "storage",
+    "activeTab",
+    "scripting"
   ],
   "host_permissions": [
     "https://chat.google.com/*",
@@ -25,6 +27,12 @@
       ],
       "js": ["content.js"],
       "run_at": "document_end"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["recorder.js"],
+      "matches": ["https://chat.google.com/*", "https://mail.google.com/*"]
     }
   ]
 }

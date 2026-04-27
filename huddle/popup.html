@@ -17,6 +17,20 @@
       <span id="huddleStatusText">Not in huddle</span>
     </div>
     
+    <div class="recording-controls">
+      <button id="startRecordingBtn" class="btn btn-record" disabled>
+        🎥 Start Recording
+      </button>
+      <button id="stopRecordingBtn" class="btn btn-stop" disabled>
+        ⏹️ Stop & Download
+      </button>
+    </div>
+    
+    <div id="recordingStatus" class="recording-status" style="display: none;">
+      <span class="recording-indicator"></span>
+      <span id="recordingTime">Recording: 0:00</span>
+    </div>
+    
     <div class="card">
       <div class="card-title">📅 Last Huddle Session</div>
       
@@ -51,8 +65,9 @@
     </div>
     
     <div class="note">
-      💡 Open Google Chat and join a huddle<br>
-      Times will appear here automatically!
+      💡 Join a huddle, then click Start Recording<br>
+      🖥️ Choose what to share when Chrome asks<br>
+      🎧 Audio from the huddle will be captured
     </div>
   </div>
   
