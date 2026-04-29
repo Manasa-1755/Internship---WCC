@@ -55,7 +55,7 @@
             status.innerHTML = message.replace(/\n/g, '<br>');
             status.style.cssText = `
                 position: fixed;
-                top: 20px;
+                bottom: 70px;
                 right: 20px;
                 background: rgba(0,0,0,0.95);
                 color: white;
